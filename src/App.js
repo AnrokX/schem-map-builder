@@ -199,33 +199,42 @@ const handleExport = async (terrain) => {
         const files = await scanDirectory();
         
         // Add each file to the zip
+        const promises = [];
         for (const filePath of files) {
-          try {
-            const response = await fetch(`/assets/${filePath}`);
-            if (!response.ok) {
-              console.warn(`Failed to fetch file ${filePath}`);
-              continue;
-            }
-            
-            const blob = await response.blob();
-            
-            // Special handling for different asset types
-            if (filePath.includes('certs/')) {
-              // Just store the cert file directly in the certs folder
-              const certFileName = filePath.split('/').pop();
-              certsFolder.file(certFileName, blob);
-            } else if (filePath.startsWith('sounds/')) {
-              soundsFolder.file(filePath.replace('sounds/', ''), blob);
-            } else if (filePath.startsWith('skyboxes/')) {
-              skyboxesFolder.file(filePath.replace('skyboxes/', ''), blob);
-            } else {
-              assetsFolder.file(filePath, blob);
-            }
-          } catch (error) {
-            console.warn(`Failed to add file ${filePath}:`, error);
-            continue;
-          }
+          const task = new Promise(async (resolve) => {
+            try {
+                const response = await fetch(`/assets/${filePath}`);
+                if (!response.ok) {
+                  console.warn(`Failed to fetch file ${filePath}`);
+                  return;
+                }
+                
+                const blob = await response.blob();
+                
+                // Special handling for different asset types
+                if (filePath.includes('certs/')) {
+                  // Just store the cert file directly in the certs folder
+                  const certFileName = filePath.split('/').pop();
+                  certsFolder.file(certFileName, blob);
+                } else if (filePath.startsWith('sounds/')) {
+                  soundsFolder.file(filePath.replace('sounds/', ''), blob);
+                } else if (filePath.startsWith('skyboxes/')) {
+                  skyboxesFolder.file(filePath.replace('skyboxes/', ''), blob);
+                } else {
+                  assetsFolder.file(filePath, blob);
+                }
+              } catch (error) {
+                console.warn(`Failed to add file ${filePath}:`, error);
+                return;
+              }
+              finally {
+                resolve();
+              }
+          });
+          promises.push(task);
         }
+
+        await Promise.all(promises);
       } catch (error) {
         console.error('Error adding default assets:', error);
         throw error;
