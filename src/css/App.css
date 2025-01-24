@@ -24,7 +24,8 @@
 
 html {
   min-width: 1300px !important;
-  overflow-x: hidden;
+  min-height: 872px !important;
+  overflow: hidden;
 }
 
 body {
@@ -34,6 +35,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-width: 1300px !important;
+  min-height: 872px !important;
+  overflow: hidden;
 }
 
 code {
@@ -131,6 +135,8 @@ button:active {
   left: 0;
   height: 100%;
   width: 100%;
+  min-width: 1300px;
+  min-height: 872px;
 }
 
 .block-tools-sidebar {
