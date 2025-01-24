@@ -22,6 +22,11 @@
   cursor: default;
 }
 
+html {
+  min-width: 1300px !important;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -94,6 +99,7 @@ button:active {
 /* Controls Container */
 .controls-container {
   width: 100%;
+  min-width: 1300px;
   position: absolute;
   bottom: 0;
   left: 0;
@@ -130,7 +136,7 @@ button:active {
 .block-tools-sidebar {
   position: fixed;
   width: 365px; /* 70px * 4 columns + 5px gap * 3 + 20px padding */
-  min-height: 800px;
+  min-height: 600px;
   height: 70vh;
   background-color: rgba(255, 255, 255, 0.2);
   padding: 10px;
@@ -145,12 +151,12 @@ button:active {
   width: 350px;
   border-radius: 10px;
   border: 2px solid #ffffff;
-  background-color:rgba(255, 255, 255, 0.363);
-  padding:5px;
-  display:flex;
-  flex-wrap:wrap;
+  background-color: rgba(255, 255, 255, 0.363);
+  padding: 5px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  height: 79%;
+  height: calc(70vh - 150px); /* Adjusted to account for padding and other elements */
   overflow-y: scroll;
   overflow-x: hidden;
 }
@@ -411,7 +417,7 @@ button:active {
 }
 
 .import-export-button {
-  width:150px;
+  width:90px;
 }
 
 /* If you're using a label for the file input, style it consistently */
@@ -626,9 +632,9 @@ button:active {
   z-index: 10;
   position: relative;
   width: 100%;
-  height: 105px;
-  margin-top: 10px;
-  margin-bottom: 10px;
+  height: 85px;
+  margin-top: 5px;
+  margin-bottom: 5px;
   border: 2px dashed #666;
   border-radius: 8px;
   background-color: rgba(255, 255, 255, 0.1);

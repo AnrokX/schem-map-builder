@@ -1786,28 +1786,12 @@ function App() {
       <div className="controls-container">
         <div className="control-group">
           <div className="control-button-wrapper">
-            <Tooltip text="Export map and assets as a complete package">
-              <button
-                onClick={() => handleExport(terrain)}
-                className="control-button import-export-button"
-              >
-                Export Asset Pack
-              </button>
-            </Tooltip>
-            <Tooltip text="Export just the map file">
-              <button
-                onClick={() => handleExportMap(terrain)}
-                className="control-button import-export-button"
-              >
-                Export Map
-              </button>
-            </Tooltip>
             <Tooltip text="Import just the map file">
               <button
                 onClick={() => document.getElementById("mapFileInput").click()}
                 className="control-button import-export-button"
               >
-                Import Map
+              Map
               </button>
               <input
                 id="mapFileInput"
@@ -1822,7 +1806,7 @@ function App() {
                 onClick={() => document.getElementById("assetPackInput").click()}
                 className="control-button import-export-button"
               >
-                Import Asset Pack
+              Asset Pack
               </button>
               <input
                 id="assetPackInput"
@@ -1833,7 +1817,29 @@ function App() {
               />
             </Tooltip>
           </div>
-          <div className="control-label">Import/Export</div>
+          <div className="control-label">Import</div>
+        </div>
+
+        <div className="control-group">
+          <div className="control-button-wrapper">
+            <Tooltip text="Export map and assets as a complete package">
+              <button
+                onClick={() => handleExport(terrain)}
+                className="control-button import-export-button"
+              >
+              Asset Pack
+              </button>
+            </Tooltip>
+            <Tooltip text="Export just the map file">
+              <button
+                onClick={() => handleExportMap(terrain)}
+                className="control-button import-export-button"
+              >
+              Map
+              </button>
+            </Tooltip>
+          </div>
+          <div className="control-label">Export</div>
         </div>
 
         <div className="control-group">
