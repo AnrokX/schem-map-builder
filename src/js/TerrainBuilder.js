@@ -103,6 +103,7 @@ function TerrainBuilder({
   const [lockedAxis, setLockedAxis] = useState(null);
   const [blockCounts, setBlockCounts] = useState({});
   const [isInitialized, setIsInitialized] = useState(false);
+  const [raycastPoint, setRaycastPoint] = useState(null);
 
   // Ref declarations
   const instancedMeshRefs = useRef({});
@@ -488,12 +489,24 @@ function TerrainBuilder({
   };
 
   const getGridIntersection = (raycaster, gridPlane) => {
+    // Get camera direction for debugging
+    const cameraDirection = new THREE.Vector3();
+    camera.getWorldDirection(cameraDirection);
+    console.log('Camera direction:', cameraDirection);
+    
+    // Create a plane that's aligned with the world grid and offset by -0.5 to match grid helper
+    const tempPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5); // Changed constant to 0.5
     const planeIntersection = new THREE.Vector3();
-    if (!raycaster.ray.intersectPlane(gridPlane, planeIntersection)) return null;
+    
+    if (!raycaster.ray.intersectPlane(tempPlane, planeIntersection)) return null;
+    
+    // Debug raycast information
+    console.log('Raycast direction:', raycaster.ray.direction);
+    console.log('Plane intersection:', planeIntersection);
     
     return {
-      point: planeIntersection,
-      normal: new THREE.Vector3(0, 1, 0),
+        point: planeIntersection,
+        normal: new THREE.Vector3(0, 1, 0)
     };
   };
 
@@ -501,14 +514,23 @@ function TerrainBuilder({
     if (!intersection) return null;
     
     const position = mode === 'remove' ? 
-      intersection.point.clone() : 
-      intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
+        intersection.point.clone() : 
+        intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
 
+    // Debug the raw intersection point
+    console.log('Raw intersection:', intersection.point);
+    
     // Snap to grid based on block type
     if (!currentBlockType?.isEnvironment) {
-      position.round();
+        // Round to nearest integer, but account for floating point imprecision
+        position.x = Math.round(position.x);
+        position.y = Math.round(position.y);
+        position.z = Math.round(position.z);
+        
+        // Debug the rounded position
+        console.log('Rounded position:', position);
     } else {
-      position.y = Math.round(position.y);
+        position.y = Math.round(position.y);
     }
 
     return position;
@@ -524,13 +546,26 @@ function TerrainBuilder({
   };
 
   function updatePreviewPosition() {
-    // Setup raycaster
-    raycaster.setFromCamera(mouse, camera);
+    const canvas = gl.domElement;
+    const rect = canvas.getBoundingClientRect();
     
-    // Get intersection point (either with existing blocks or grid)
+    const normalizedMouse = {
+        x: ((mouse.x * window.innerWidth/2 + window.innerWidth/2) - rect.left) / rect.width * 2 - 1,
+        y: ((mouse.y * window.innerHeight/2 + window.innerHeight/2) - rect.top) / rect.height * 2 - 1
+    };
+
+    raycaster.setFromCamera(normalizedMouse, camera);
+    
     const intersection = getRaycastIntersection(raycaster, instancedMeshRefs, mode) || 
                         getGridIntersection(raycaster, gridPlane);
     
+    // Store the raw intersection point for visualization
+    if (intersection) {
+      setRaycastPoint(intersection.point.clone());
+    } else {
+      setRaycastPoint(null);
+    }
+
     /// if no intersection, set debug info and return
     if (!intersection) {
       setDebugInfo({ mouse: { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2) }, grid: {}, preview: {} });
@@ -976,6 +1011,14 @@ function TerrainBuilder({
         <planeGeometry args={[gridSize, gridSize]} />
         <shadowMaterial transparent opacity={0.2} />
       </mesh>
+
+      {/* Debug visualization of raycast intersection */}
+      {raycastPoint && (
+        <mesh position={raycastPoint}>
+          <sphereGeometry args={[0.1, 16, 16]} />
+          <meshBasicMaterial color="red" />
+        </mesh>
+      )}
 
     </>
   );
