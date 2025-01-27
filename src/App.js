@@ -38,7 +38,7 @@ import JSZip from 'jszip';
 
 
 /// change this to the version number of the map builder
-const version = "1.3";
+const version = "1.3.1";
 
 // Add this near the top of the file, before the App function
 const LoadingScreen = () => (

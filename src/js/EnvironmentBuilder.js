@@ -204,20 +204,21 @@ export const EnvironmentBuilder = forwardRef(({
 
         // Group geometries by material
         const geometriesByMaterial = new Map();
-        //console.log('Traversing GLTF scene for:', modelType.name);
         
         gltf.scene.traverse((child) => {
             if (child.isMesh) {
-                
-                child.updateMatrix();
-                child.updateMatrixWorld(true);
-                
-                // Handle both single material and material array cases
                 const materials = Array.isArray(child.material) ? child.material : [child.material];
                 
                 materials.forEach((material, materialIndex) => {
-                    if (!geometriesByMaterial.has(material)) {
-                        geometriesByMaterial.set(material, []);
+                    // Clone and modify the material for proper rendering
+                    const newMaterial = material.clone();
+                    newMaterial.depthWrite = true;
+                    newMaterial.depthTest = true;
+                    newMaterial.transparent = true;
+                    newMaterial.alphaTest = 0.5;
+                    
+                    if (!geometriesByMaterial.has(newMaterial)) {
+                        geometriesByMaterial.set(newMaterial, []);
                     }
                     
                     // Clone geometry and apply world transform
@@ -249,78 +250,44 @@ export const EnvironmentBuilder = forwardRef(({
                         
                         if (newIndices.length > 0) {
                             filteredGeometry.setIndex(newIndices);
-                            geometriesByMaterial.get(material).push(filteredGeometry);
+                            geometriesByMaterial.get(newMaterial).push(filteredGeometry);
                         }
                     } else {
-                        geometriesByMaterial.get(material).push(geometry);
+                        geometriesByMaterial.get(newMaterial).push(geometry);
                     }
                 });
             }
         });
 
-        // Create an instanced mesh for each material
-        const createdMeshes = [];
-        let modelHeight = 0;
-
-        try {
-            for (const [material, geometries] of geometriesByMaterial) {
-                
-                if (geometries.length === 0) continue;
-
-                const mergedGeometry = geometries.length === 1 ? 
-                    geometries[0] : mergeGeometries(geometries);
-
-                // Compute bounding box for the first geometry to get model height
-                if (createdMeshes.length === 0) {
-                    mergedGeometry.computeBoundingBox();
-                    const boundingBox = mergedGeometry.boundingBox;
-                    modelHeight = boundingBox.max.y - boundingBox.min.y;
-                    
-                    // Center the geometry
-                    const center = new THREE.Vector3();
-                    boundingBox.getCenter(center);
-                    mergedGeometry.translate(-center.x, -boundingBox.min.y, -center.z);
-                }
-
-                // Clone and configure material
-                const instancedMaterial = material.clone();
-                instancedMaterial.side = THREE.DoubleSide;
-                instancedMaterial.transparent = true;
-                instancedMaterial.alphaTest = 0.5;
-                
-                if (instancedMaterial.map) {
-                    instancedMaterial.map.encoding = THREE.SRGBColorSpace;
-                }
-
-                // Create instanced mesh
+        // Create instanced meshes
+        const instancedMeshArray = [];
+        for (const [material, geometries] of geometriesByMaterial.entries()) {
+            if (geometries.length > 0) {
+                const mergedGeometry = mergeGeometries(geometries);
                 const instancedMesh = new THREE.InstancedMesh(
                     mergedGeometry,
-                    instancedMaterial,
-                    100
+                    material,
+                    10 // Initial capacity
                 );
-                instancedMesh.count = 0;
+                
+                // Disable frustum culling
                 instancedMesh.frustumCulled = false;
-                instancedMesh.castShadow = true;
-                instancedMesh.receiveShadow = true;
-
-                createdMeshes.push(instancedMesh);
+                
+                // Set rendering order
+                instancedMesh.renderOrder = 1;
+                
+                instancedMesh.count = 0;
                 scene.add(instancedMesh);
+                instancedMeshArray.push(instancedMesh);
             }
-
-            // Store all instanced meshes for this model in the ref
-            instancedMeshes.current.set(modelType.modelUrl, {
-                meshes: createdMeshes,
-                instances: new Map(),
-                modelHeight: modelHeight
-            });
-
-        } catch (error) {
-            console.error('Error in setupInstancedMesh:', {
-                modelName: modelType.name,
-                error: error
-            });
-            throw error; // Re-throw to be caught by the caller
         }
+
+        // Store all instanced meshes for this model in the ref
+        instancedMeshes.current.set(modelType.modelUrl, {
+            meshes: instancedMeshArray,
+            instances: new Map(),
+            modelHeight: boundingHeight
+        });
     };
 
     const updateModelPreview = async (position) => {
@@ -391,12 +358,16 @@ export const EnvironmentBuilder = forwardRef(({
         previewModel.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
         previewModel.rotation.copy(new THREE.Euler());
         
-        // Make the preview semi-transparent
+        // Make the preview semi-transparent and ensure proper rendering
         previewModel.traverse((child) => {
             if (child.isMesh) {
                 child.material = child.material.clone();
                 child.material.transparent = true;
-                child.material.depthWrite = false;
+                child.material.depthWrite = true;
+                child.material.depthTest = true;
+                child.material.alphaTest = 0.5;
+                child.renderOrder = 2; // Higher render order for preview
+                child.frustumCulled = false;
             }
         });
         
@@ -644,7 +615,6 @@ export const EnvironmentBuilder = forwardRef(({
                 }));
             });
 
-            console.log('Saving new environment state:', newEnvironmentState);
             await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnvironmentState);
 
             // Save to undo states

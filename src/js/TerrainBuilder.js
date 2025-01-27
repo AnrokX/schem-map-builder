@@ -142,6 +142,12 @@ function TerrainBuilder({
           1
         );
         
+        // Disable frustum culling
+        instancedMeshRefs.current[type.id].frustumCulled = false;
+        
+        // Set rendering order to ensure proper depth sorting
+        instancedMeshRefs.current[type.id].renderOrder = 1;
+        
         instancedMeshRefs.current[type.id].userData.blockTypeId = type.id;
         instancedMeshRefs.current[type.id].count = 0;
         scene.add(instancedMeshRefs.current[type.id]);
@@ -316,12 +322,17 @@ function TerrainBuilder({
           undefined,
           undefined,
           () => {
-            // On error, load error texture
             const errorTexture = new THREE.TextureLoader().load('./assets/blocks/error/error.png');
             errorTexture.magFilter = THREE.NearestFilter;
             errorTexture.minFilter = THREE.NearestFilter;
             errorTexture.colorSpace = THREE.SRGBColorSpace;
-            const errorMaterial = new THREE.MeshPhongMaterial({ map: errorTexture });
+            const errorMaterial = new THREE.MeshPhongMaterial({ 
+              map: errorTexture,
+              depthWrite: true,
+              depthTest: true,
+              transparent: true,
+              alphaTest: 0.5
+            });
             resolve(Array(6).fill(errorMaterial));
           }
         );
@@ -329,7 +340,13 @@ function TerrainBuilder({
         texture.minFilter = THREE.NearestFilter;
         texture.colorSpace = THREE.SRGBColorSpace;
         
-        const material = new THREE.MeshPhongMaterial({ map: texture });
+        const material = new THREE.MeshPhongMaterial({ 
+          map: texture,
+          depthWrite: true,
+          depthTest: true,
+          transparent: true,
+          alphaTest: 0.5
+        });
         resolve(Array(6).fill(material));
       });
     }
@@ -381,7 +398,9 @@ function TerrainBuilder({
           color: 0xffffff,
           transparent: true,
           alphaTest: 0.5,
-          opacity: texture.name?.includes('water') ? 0.5 : 1
+          opacity: texture.name?.includes('water') ? 0.5 : 1,
+          depthWrite: true,
+          depthTest: true
         }));
       } catch (error) {
         console.error(`Error loading texture for ${blockType.name}:`, error);
@@ -492,17 +511,12 @@ function TerrainBuilder({
     // Get camera direction for debugging
     const cameraDirection = new THREE.Vector3();
     camera.getWorldDirection(cameraDirection);
-    console.log('Camera direction:', cameraDirection);
     
     // Create a plane that's aligned with the world grid and offset by -0.5 to match grid helper
     const tempPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5); // Changed constant to 0.5
     const planeIntersection = new THREE.Vector3();
     
     if (!raycaster.ray.intersectPlane(tempPlane, planeIntersection)) return null;
-    
-    // Debug raycast information
-    console.log('Raycast direction:', raycaster.ray.direction);
-    console.log('Plane intersection:', planeIntersection);
     
     return {
         point: planeIntersection,
@@ -516,9 +530,6 @@ function TerrainBuilder({
     const position = mode === 'remove' ? 
         intersection.point.clone() : 
         intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
-
-    // Debug the raw intersection point
-    console.log('Raw intersection:', intersection.point);
     
     // Snap to grid based on block type
     if (!currentBlockType?.isEnvironment) {
@@ -527,8 +538,6 @@ function TerrainBuilder({
         position.y = Math.round(position.y);
         position.z = Math.round(position.z);
         
-        // Debug the rounded position
-        console.log('Rounded position:', position);
     } else {
         position.y = Math.round(position.y);
     }
@@ -549,22 +558,17 @@ function TerrainBuilder({
     const canvas = gl.domElement;
     const rect = canvas.getBoundingClientRect();
     
+    // Calculate normalized device coordinates (NDC) using clientX/Y
     const normalizedMouse = {
-        x: ((mouse.x * window.innerWidth/2 + window.innerWidth/2) - rect.left) / rect.width * 2 - 1,
-        y: ((mouse.y * window.innerHeight/2 + window.innerHeight/2) - rect.top) / rect.height * 2 - 1
+        x: (((mouse.x + 1) / 2 * rect.width) - rect.width/2) / rect.width * 2,
+        y: (((mouse.y + 1) / 2 * rect.height) - rect.height/2) / rect.height * 2
     };
 
     raycaster.setFromCamera(normalizedMouse, camera);
     
+    // Get intersection point (either with existing blocks or grid)
     const intersection = getRaycastIntersection(raycaster, instancedMeshRefs, mode) || 
                         getGridIntersection(raycaster, gridPlane);
-    
-    // Store the raw intersection point for visualization
-    if (intersection) {
-      setRaycastPoint(intersection.point.clone());
-    } else {
-      setRaycastPoint(null);
-    }
 
     /// if no intersection, set debug info and return
     if (!intersection) {
@@ -986,18 +990,18 @@ function TerrainBuilder({
         <>
           {getPlacementPositions(previewPosition, placementSize).map((pos, index) => (
             <group key={index} position={[pos.x, pos.y, pos.z]}>
-              <mesh>
+              <mesh renderOrder={2}>
                 <boxGeometry args={[1.02, 1.02, 1.02]} />
                 <meshPhongMaterial 
                   color={mode === 'add' ? "green" : "red"} 
                   opacity={0.4}
                   transparent={true}
-                  receiveShadow={false}
-                  castShadow={false}
                   depthWrite={false}
+                  depthTest={true}
+                  alphaTest={0.1}
                 />
               </mesh>
-              <lineSegments>
+              <lineSegments renderOrder={3}>
                 <edgesGeometry args={[new THREE.BoxGeometry(1, 1, 1)]} />
                 <lineBasicMaterial color="darkgreen" linewidth={2} />
               </lineSegments>
