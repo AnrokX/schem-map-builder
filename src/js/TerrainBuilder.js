@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
 import { soundManager } from './Sound';
 import { cameraManager } from './Camera';
 import { DatabaseManager, STORES } from './DatabaseManager';
-import {MAX_UNDO_STATES} from './Constants';
+import { UndoRedoManager } from './UndoRedo';
 
 // Modify the blockTypes definition to be a function that can be updated
 let blockTypesArray = (() => {
@@ -419,57 +419,42 @@ function TerrainBuilder({
     return materials;
   };
 
-  // Modify placeBlock to not save state (just update terrain)
+  // Modify placeBlock to use UndoRedoManager without any trimming
   const placeBlock = async (gridX, gridY, gridZ) => {
     if (mode === 'add') {
-      if (currentBlockType?.isEnvironment) {
-        return; // Environment objects are handled separately
-      } else {
         onTerrainUpdate((prev) => {
-          const newTerrain = { ...prev };
-          const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
-          
-          let terrainModified = false;
-          positions.forEach(pos => {
-            const key = `${pos.x},${pos.y},${pos.z}`;
-            if (!prev[key] || prev[key].id !== currentBlockType.id) {
-              const newBlock = { ...currentBlockType, mesh: null };
-              newTerrain[key] = newBlock;
-              terrainModified = true;
-            }
-          });
-          
-          if (terrainModified) {
-            DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain)
-              .catch(e => console.warn('Failed to save terrain to IndexedDB:', e));
-          }
-          
-          setTotalBlocks(Object.keys(newTerrain).length);
-          return newTerrain;
+            const newTerrain = { ...prev };
+            const added = {};
+            const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
+            
+            positions.forEach(pos => {
+                const key = `${pos.x},${pos.y},${pos.z}`;
+                if (!prev[key] || prev[key].id !== currentBlockType.id) {
+                    const newBlock = { ...currentBlockType, mesh: null };
+                    newTerrain[key] = newBlock;
+                    added[key] = newBlock;
+                }
+            });
+            
+            return newTerrain;
         });
-      }
     } else if (mode === 'remove') {
-      onTerrainUpdate((prev) => {
-        const newTerrain = { ...prev };
-        const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
-        
-        let terrainModified = false;
-        positions.forEach(pos => {
-          const key = `${pos.x},${pos.y},${pos.z}`;
-          if (prev[key]) {
-            delete newTerrain[key];
-            terrainModified = true;
-          }
+        onTerrainUpdate((prev) => {
+            const newTerrain = { ...prev };
+            const removed = {};
+            const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
+            
+            positions.forEach(pos => {
+                const key = `${pos.x},${pos.y},${pos.z}`;
+                if (prev[key]) {
+                    removed[key] = prev[key];
+                    delete newTerrain[key];
+                }
+            });
+            
+            setTotalBlocks(Object.keys(newTerrain).length);
+            return newTerrain;
         });
-        
-        if (terrainModified) {
-          DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain)
-            .catch(e => console.warn('Failed to save terrain to IndexedDB:', e));
-        }
-        
-        setTotalBlocks(Object.keys(newTerrain).length);
-        return newTerrain;
-      });
     }
   };
 
@@ -662,25 +647,58 @@ function TerrainBuilder({
     }
   };
 
-  // Modify handlePointerUp to save state
+  // Move undo state saving to handlePointerUp
   const handlePointerUp = async (event) => {
     if (event.button === 0) {
-      setIsPlacing(false);
-      setLockedY(null);
-      isFirstBlock.current = true;
-      
-      // Save state to undo stack only if we made changes
-      if (placementStartState.current) {
-        const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
-        await DatabaseManager.saveData(STORES.UNDO, 'states', [placementStartState.current, ...undoStates].slice(0, MAX_UNDO_STATES));
-        await DatabaseManager.saveData(STORES.REDO, 'states', []); // Clear redo states
-        placementStartState.current = null;
-      }
+        setIsPlacing(false);
+        setLockedY(null);
+        isFirstBlock.current = true;
+        
+        // Save state to undo stack only if we made changes
+        if (placementStartState.current) {
+            const currentState = {
+                terrain: { ...terrain },
+                environment: await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
+            };
+            
+            // Calculate changes
+            const changes = {
+                terrain: {
+                    added: {},
+                    removed: {}
+                },
+                environment: {
+                    added: [],
+                    removed: []
+                }
+            };
+            
+            // Calculate terrain changes
+            Object.entries(currentState.terrain).forEach(([key, value]) => {
+                if (!placementStartState.current.terrain[key]) {
+                    changes.terrain.added[key] = value;
+                }
+            });
+            
+            Object.entries(placementStartState.current.terrain).forEach(([key, value]) => {
+                if (!currentState.terrain[key]) {
+                    changes.terrain.removed[key] = value;
+                }
+            });
+            
+            // Save changes to UndoRedoManager if there were any changes
+            if (Object.keys(changes.terrain.added).length > 0 || 
+                Object.keys(changes.terrain.removed).length > 0) {
+                await UndoRedoManager.saveUndo(changes);
+            }
+            
+            placementStartState.current = null;
+        }
 
-      if (axisLockEnabled) {
-        setLockedAxis(null);
-        placementStartPosition.current = null;
-      }
+        if (axisLockEnabled) {
+            setLockedAxis(null);
+            placementStartPosition.current = null;
+        }
     }
   };
 

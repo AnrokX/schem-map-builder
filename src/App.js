@@ -34,6 +34,7 @@ import DebugInfo from './js/components/DebugInfo';
 import { DatabaseManager, STORES } from './js/DatabaseManager';
 import JSZip from 'jszip';
 import BlockToolsSidebar from './js/components/BlockToolsSidebar';
+import { UndoRedoManager } from './js/UndoRedo';
 
 
 /// change this to the version number of the map builder
@@ -118,96 +119,203 @@ function App() {
     setTotalBlocks(count);
   }, [terrain]);
 
-  const undo = useCallback(async () => {
-    try {
-      const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
-      if (undoStates.length === 0) {
-        console.log('No undo states available');
-        return;
-      }
+  useEffect(() => {
+    const initializeStates = async () => {
+      try {
+        // Get the current states
+        const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
+        const redoStates = await DatabaseManager.getData(STORES.REDO, 'states') || [];
 
-      const currentState = {
-        terrain: { ...terrain },
-        environment: await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
-      };
+        // Apply all undo states in reverse order (oldest to newest)
+        const reversedUndoStates = [...undoStates].reverse();
+        for (const state of reversedUndoStates) {
+          if (state.terrain) {
+            const currentTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
+            const newTerrain = { ...currentTerrain };
 
-      const [stateToRestore, ...remainingUndoStates] = undoStates;
-      console.log('Restoring state:', stateToRestore);
+            // Apply removed blocks
+            Object.keys(state.terrain.removed || {}).forEach(key => {
+              delete newTerrain[key];
+            });
 
-      // 1. First save the current state to redo and update undo states
-      await Promise.all([
-        DatabaseManager.saveData(STORES.REDO, 'states', [currentState, ...redoStates]),
-        DatabaseManager.saveData(STORES.UNDO, 'states', remainingUndoStates)
-      ]);
+            // Apply added blocks
+            Object.entries(state.terrain.added || {}).forEach(([key, value]) => {
+              newTerrain[key] = value;
+            });
 
-      // 2. Update React state for undo/redo
-      setRedoStates(prev => [currentState, ...prev]);
+            await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
+          }
 
-      // 3. Save and update the state we're restoring
-      await Promise.all([
-        DatabaseManager.saveData(STORES.TERRAIN, 'current', stateToRestore.terrain),
-        DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', stateToRestore.environment)
-      ]);
+          if (state.environment?.added || state.environment?.removed) {
+            const currentEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+            const newEnv = currentEnv.filter(obj => 
+              !(state.environment.removed || []).some(removed => 
+                removed.modelUrl === obj.modelUrl && 
+                removed.position.x === obj.position.x &&
+                removed.position.y === obj.position.y &&
+                removed.position.z === obj.position.z
+              )
+            );
 
-      // 4. Update terrain state
-      setTerrainState(stateToRestore.terrain);
+            if (Array.isArray(state.environment.added)) {
+              newEnv.push(...state.environment.added);
+            }
 
-      // 5. Reload environment only if we have environment data
-      if (stateToRestore.environment && stateToRestore.environment.length > 0) {
-        console.log('Restoring environment with data:', stateToRestore.environment);
+            await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnv);
+          }
+        }
+
+        // Apply all redo states in forward order
+        for (const state of redoStates) {
+          if (state.terrain) {
+            const currentTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
+            const newTerrain = { ...currentTerrain };
+
+            // Apply removed blocks
+            Object.keys(state.terrain.removed || {}).forEach(key => {
+              delete newTerrain[key];
+            });
+
+            // Apply added blocks
+            Object.entries(state.terrain.added || {}).forEach(([key, value]) => {
+              newTerrain[key] = value;
+            });
+
+            await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
+          }
+
+          if (state.environment?.added || state.environment?.removed) {
+            const currentEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+            const newEnv = currentEnv.filter(obj => 
+              !(state.environment.removed || []).some(removed => 
+                removed.modelUrl === obj.modelUrl && 
+                removed.position.x === obj.position.x &&
+                removed.position.y === obj.position.y &&
+                removed.position.z === obj.position.z
+              )
+            );
+
+            if (Array.isArray(state.environment.added)) {
+              newEnv.push(...state.environment.added);
+            }
+
+            await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnv);
+          }
+        }
+
+        // Update the terrain state in React
+        const finalTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
+        setTerrainState(finalTerrain);
+
+        // Reload environment if environment builder is ready
         if (environmentBuilder.current) {
           await environmentBuilder.current.loadSavedEnvironment();
         }
-      } else {
-        console.log('No environment data to restore, clearing environment');
-        if (environmentBuilder.current) {
-          await environmentBuilder.current.clearEnvironments();
-        }
+
+      } catch (error) {
+        console.error('Error initializing undo/redo states:', error);
       }
+    };
+
+    // Run initialization when the page loads
+    initializeStates();
+  }, []);
+
+  const undo = useCallback(async () => {
+    try {
+      const changes = await UndoRedoManager.undo(terrain);
+      if (!changes) return;
+
+      // Apply terrain changes
+      if (changes.terrain) {
+        const newTerrain = { ...terrain };
+        
+        // Remove added blocks
+        Object.keys(changes.terrain.added || {}).forEach(key => {
+          delete newTerrain[key];
+        });
+        
+        // Restore removed blocks
+        Object.entries(changes.terrain.removed || {}).forEach(([key, value]) => {
+          newTerrain[key] = value;
+        });
+        
+        setTerrainState(newTerrain);
+        await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
+      }
+
+      // Apply environment changes
+      if (changes.environment?.added && changes.environment?.removed && environmentBuilder.current) {
+        const currentEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+        const newEnv = currentEnv.filter(obj => 
+          !changes.environment.added.some(added => 
+            added.modelUrl === obj.modelUrl && 
+            added.position.x === obj.position.x &&
+            added.position.y === obj.position.y &&
+            added.position.z === obj.position.z
+          )
+        );
+        
+        if (Array.isArray(changes.environment.removed)) {
+          newEnv.push(...changes.environment.removed);
+        }
+        
+        await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnv);
+        await environmentBuilder.current.loadSavedEnvironment();
+      }
+
     } catch (error) {
       console.error('Error during undo:', error);
     }
-  }, [terrain, redoStates]);
+  }, [terrain]);
 
   const redo = useCallback(async () => {
     try {
-      const redoStates = await DatabaseManager.getData(STORES.REDO, 'states') || [];
-      if (redoStates.length === 0) return;
+      const changes = await UndoRedoManager.redo(terrain);
+      if (!changes) return;
 
-      const currentState = {
-        terrain: { ...terrain },
-        environment: await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
-      };
+      // Apply terrain changes
+      if (changes.terrain) {
+        const newTerrain = { ...terrain };
+        
+        // Remove blocks that were previously removed
+        Object.keys(changes.terrain.removed || {}).forEach(key => {
+          delete newTerrain[key];
+        });
+        
+        // Add blocks that were previously added
+        Object.entries(changes.terrain.added || {}).forEach(([key, value]) => {
+          newTerrain[key] = value;
+        });
+        
+        setTerrainState(newTerrain);
+        await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
+      }
 
-      const [stateToRestore, ...remainingRedoStates] = redoStates;
-
-      // Save current state to undo
-      const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
-      await DatabaseManager.saveData(STORES.UNDO, 'states', [currentState, ...undoStates]);
-
-      // Update redo states
-      await DatabaseManager.saveData(STORES.REDO, 'states', remainingRedoStates);
-      setRedoStates(remainingRedoStates);
-
-      // First save the state
-      await Promise.all([
-        DatabaseManager.saveData(STORES.TERRAIN, 'current', stateToRestore.terrain),
-        DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', stateToRestore.environment)
-      ]);
-
-      // Then update the UI and reload environment
-      setTerrainState(stateToRestore.terrain);
-      
-      // Wait a frame to ensure DB write is complete
-      await new Promise(resolve => setTimeout(resolve, 0));
-      
-      if (environmentBuilder.current) {
+      // Apply environment changes
+      if (changes.environment?.added && changes.environment?.removed && environmentBuilder.current) {
+        const currentEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+        const newEnv = currentEnv.filter(obj => 
+          !changes.environment.removed.some(removed => 
+            removed.modelUrl === obj.modelUrl && 
+            removed.position.x === obj.position.x &&
+            removed.position.y === obj.position.y &&
+            removed.position.z === obj.position.z
+          )
+        );
+        
+        if (Array.isArray(changes.environment.added)) {
+          newEnv.push(...changes.environment.added);
+        }
+        
+        await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnv);
         await environmentBuilder.current.loadSavedEnvironment();
       }
+
     } catch (error) {
       console.error('Error during redo:', error);
     }
-  }, [terrain, redoStates]);
+  }, [terrain]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {

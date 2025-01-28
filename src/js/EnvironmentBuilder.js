@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { DatabaseManager, STORES } from './DatabaseManager';
 import { MAX_UNDO_STATES } from './Constants';
+import { UndoRedoManager } from './UndoRedo';
 
 export const environmentModels = (() => {
   try {
@@ -723,12 +724,13 @@ export const EnvironmentBuilder = forwardRef(({
 
             await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnvironmentState);
 
-            // Save to undo states
-            const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
-            await DatabaseManager.saveData(STORES.UNDO, 'states', [currentState, ...undoStates].slice(0, MAX_UNDO_STATES));
-            
-            // Clear redo states
-            await DatabaseManager.saveData(STORES.REDO, 'states', []);
+            // Save undo state with only the added instances
+            await UndoRedoManager.saveUndo({
+                environment: {
+                    added: placedInstances,
+                    removed: []
+                }
+            });
 
             setTotalEnvironmentObjects(newEnvironmentState.length);
 
