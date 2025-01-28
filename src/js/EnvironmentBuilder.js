@@ -416,42 +416,14 @@ export const EnvironmentBuilder = forwardRef(({
 
     // New function to efficiently update environment
     const updateEnvironmentToMatch = async (targetState) => {
-        try {
-            // Create maps for quick lookups
-            const targetStateMap = new Map(
-                targetState.map(obj => [
-                    `${obj.modelUrl}-${obj.position.x}-${obj.position.y}-${obj.position.z}`,
-                    obj
-                ])
-            );
-
-            const currentStateMap = new Map();
-            
-            // Build current state map
-            for (const [modelUrl, instancedData] of instancedMeshes.current) {
-                instancedData.instances.forEach((data, instanceId) => {
-                    const key = `${modelUrl}-${data.position.x}-${data.position.y}-${data.position.z}`;
-                    currentStateMap.set(key, { modelUrl, instanceId, ...data });
-                });
-            }
-
+        try {            
+            // Make a list of all current objects
             const toRemove = [];
-            const toAdd = [];
-
-            // Find objects to remove/add
-            for (const [key, currentObj] of currentStateMap) {
-                if (!targetStateMap.has(key)) {
-                    toRemove.push(currentObj);
-                }
+            for (const [modelUrl, instancedData] of instancedMeshes.current) {
+                instancedData.instances.forEach((_, instanceId) => toRemove.push({ modelUrl, instanceId }));
             }
 
-            for (const [key, targetObj] of targetStateMap) {
-                if (!currentStateMap.has(key)) {
-                    toAdd.push(targetObj);
-                }
-            }
-
-            // Remove objects that shouldn't be there
+            // Remove them
             for (const obj of toRemove) {
                 const instancedData = instancedMeshes.current.get(obj.modelUrl);
                 if (instancedData) {
@@ -459,9 +431,9 @@ export const EnvironmentBuilder = forwardRef(({
                 }
             }
 
-            // Add new objects without saving state each time
-            for (const obj of toAdd) {
-                const modelType = environmentModels.find(model => model.modelUrl === obj.modelUrl);
+            // Replace with new state
+            for (const obj of targetState) {
+                const modelType = environmentModels.find(model => model.name === obj.name);
                 if (modelType) {
                     const tempMesh = new THREE.Object3D();
                     tempMesh.position.copy(obj.position);
@@ -473,10 +445,8 @@ export const EnvironmentBuilder = forwardRef(({
                 }
             }
 
-            // Save state once at the end
-            if (toAdd.length > 0 || toRemove.length > 0) {
-                await updateLocalStorage();
-            }
+            // Save to DB
+            await updateLocalStorage();
 
             // Update total count
             setTotalEnvironmentObjects(targetState.length);
