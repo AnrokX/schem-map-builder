@@ -55,7 +55,8 @@ export const EnvironmentBuilder = forwardRef(({
   mode, 
   previewScale, 
   previewRotation,
-  onTotalObjectsChange  // Add this prop
+  onTotalObjectsChange,
+  placementSize = 'single'
 }, ref) => {
     // Convert class properties to refs and state
     const loader = useRef(new GLTFLoader());
@@ -570,34 +571,80 @@ export const EnvironmentBuilder = forwardRef(({
                 return null;
             }
 
-            const position = mesh.position.clone();
+            const centerPosition = mesh.position.clone();
             const rotation = mesh.rotation.clone();
             const scale = mesh.scale.clone();
 
-            // Create transform matrix
-            const matrix = new THREE.Matrix4();
-            matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+            // Define positions based on placementSize
+            let positions = [centerPosition.clone()]; // Default to single placement
 
-            // Add new instance to all meshes
-            const instanceId = instancedData.instances.size;
-            
-            instancedData.meshes.forEach(mesh => {
-                mesh.count++;
-                
-                if (instanceId >= mesh.instanceMatrix.count) {
-                    expandInstancedMeshCapacity(modelUrl);
+            if (placementSize === "cross") {
+                positions = [
+                    centerPosition.clone(),
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
+                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
+                    centerPosition.clone().add(new THREE.Vector3(1, 0, 0))
+                ];
+            } else if (placementSize === "diamond") {
+                positions = [
+                    centerPosition.clone(),
+                    // Inner ring
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
+                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
+                    centerPosition.clone().add(new THREE.Vector3(1, 0, 0)),
+                    // Outer ring
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, -2)),
+                    centerPosition.clone().add(new THREE.Vector3(0, 0, 2)),
+                    centerPosition.clone().add(new THREE.Vector3(-2, 0, 0)),
+                    centerPosition.clone().add(new THREE.Vector3(2, 0, 0)),
+                    centerPosition.clone().add(new THREE.Vector3(-1, 0, -1)),
+                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 1)),
+                    centerPosition.clone().add(new THREE.Vector3(1, 0, -1)),
+                    centerPosition.clone().add(new THREE.Vector3(1, 0, 1))
+                ];
+            } else if (placementSize === "square9") {
+                positions = [];
+                for (let x = -1; x <= 1; x++) {
+                    for (let z = -1; z <= 1; z++) {
+                        positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
+                    }
                 }
+            } else if (placementSize === "square16") {
+                positions = [];
+                for (let x = -2; x <= 1; x++) {
+                    for (let z = -2; z <= 1; z++) {
+                        positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
+                    }
+                }
+            }
 
-                mesh.setMatrixAt(instanceId, matrix);
-                mesh.instanceMatrix.needsUpdate = true;
-            });
+            // Place instances at all positions
+            positions.forEach((position) => {
+                const matrix = new THREE.Matrix4();
+                matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
 
-            // Store instance data
-            instancedData.instances.set(instanceId, {
-                position,
-                rotation,
-                scale,
-                matrix
+                const instanceId = instancedData.instances.size;
+                
+                instancedData.meshes.forEach(mesh => {
+                    mesh.count++;
+                    
+                    if (instanceId >= mesh.instanceMatrix.count) {
+                        expandInstancedMeshCapacity(modelUrl);
+                    }
+
+                    mesh.setMatrixAt(instanceId, matrix);
+                    mesh.instanceMatrix.needsUpdate = true;
+                });
+
+                // Store instance data
+                instancedData.instances.set(instanceId, {
+                    position,
+                    rotation,
+                    scale,
+                    matrix
+                });
             });
 
             ///console.log("placed environment at", position.x, position.y, position.z);
