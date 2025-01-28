@@ -53,19 +53,17 @@ export const EnvironmentBuilder = forwardRef(({
   scene, 
   currentBlockType, 
   mode, 
-  previewScale, 
-  previewRotation,
   onTotalObjectsChange,
   placementSize = 'single',
   placementSettings = {
-    randomSize: false,
+    randomScale: false,
     randomRotation: false,
-    minSize: 0.5,
-    maxSize: 1.5,
+    minScale: 0.5,
+    maxScale: 1.5,
     minRotation: 0,
     maxRotation: 360,
-    size: 1.0,
-    rotation: 0,
+    scale: 1.0,
+    rotation: 0
   }
 }, ref) => {
     // Convert class properties to refs and state
@@ -365,9 +363,9 @@ export const EnvironmentBuilder = forwardRef(({
         previewModel.userData.modelId = currentBlockType.id;
         
         // Apply transformations
-        previewModel.scale.set(1, 1, 1);
+        previewModel.scale.set(placementSettings.scale, placementSettings.scale, placementSettings.scale);
         previewModel.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
-        previewModel.rotation.copy(new THREE.Euler());
+        previewModel.rotation.copy(new THREE.Euler(0, placementSettings.rotation * Math.PI / 180, 0));
         
         // Make the preview semi-transparent and ensure proper rendering
         previewModel.traverse((child) => {
@@ -550,17 +548,25 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     const getPlacementTransform = () => {
-        const scale = placementSettings.randomSize
-            ? getRandomValue(placementSettings.minSize, placementSettings.maxSize)
-            : placementSettings.size;
+        if (!placementSettings) {
+            console.warn('No placement settings provided');
+            return {
+                scale: new THREE.Vector3(1, 1, 1),
+                rotation: new THREE.Euler(0, 0, 0)
+            };
+        }
+
+        const scale = placementSettings.randomScale
+            ? getRandomValue(placementSettings.minScale, placementSettings.maxScale)
+            : placementSettings.scale;
         
-        const rotation = placementSettings.randomRotation
+        const rotationDegrees = placementSettings.randomRotation
             ? getRandomValue(placementSettings.minRotation, placementSettings.maxRotation)
             : placementSettings.rotation;
-
+        
         return {
             scale: new THREE.Vector3(scale, scale, scale),
-            rotation: new THREE.Euler(0, rotation * Math.PI / 180, 0)
+            rotation: new THREE.Euler(0, rotationDegrees * Math.PI / 180, 0)
         };
     };
 

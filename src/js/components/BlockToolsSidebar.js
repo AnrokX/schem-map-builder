@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { FaUpload, FaCube, FaTree } from "react-icons/fa";
 import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import "../../css/BlockToolsSidebar.css";
 
-const SIZE_MIN = 0.1;
-const SIZE_MAX = 5.0;
+const SCALE_MIN = 0.1;
+const SCALE_MAX = 5.0;
 const ROTATION_MIN = 0;
 const ROTATION_MAX = 360;
 
@@ -24,53 +24,22 @@ const BlockToolsSidebar = ({
   handleDrop,
   onPlacementSettingsChange,
 }) => {
-  const [sizeValue, setSizeValue] = useState("1.0");
-  const [rotationValue, setRotationValue] = useState("0");
-  const [randomRotation, setRandomRotation] = useState(false);
-  const [randomSize, setRandomSize] = useState(false);
-  const [minSize, setMinSize] = useState("0.5");
-  const [maxSize, setMaxSize] = useState("1.5");
-  const [minRotation, setMinRotation] = useState("0");
-  const [maxRotation, setMaxRotation] = useState("360");
-  const [tempMinSize, setTempMinSize] = useState(minSize);
-  const [tempMaxSize, setTempMaxSize] = useState(maxSize);
-  const [tempMinRotation, setTempMinRotation] = useState(minRotation);
-  const [tempMaxRotation, setTempMaxRotation] = useState(maxRotation);
-  const [tempSizeValue, setTempSizeValue] = useState(sizeValue);
-  const [tempRotationValue, setTempRotationValue] = useState(rotationValue);
+  const [settings, setSettings] = useState({
+    randomScale: false,
+    randomRotation: false,
+    minScale: 0.5,
+    maxScale: 1.5,
+    minRotation: 0,
+    maxRotation: 360,
+    scale: 1.0,
+    rotation: 0
+  });
 
-  useEffect(() => {
-    console.log('Updating placement settings:', {
-      randomSize,
-      randomRotation,
-      minSize,
-      maxSize,
-      minRotation,
-      maxRotation,
-      size: sizeValue,
-      rotation: rotationValue,
-    });
-    
-    onPlacementSettingsChange?.({
-      randomSize,
-      randomRotation,
-      minSize: parseFloat(minSize),
-      maxSize: parseFloat(maxSize),
-      minRotation: parseFloat(minRotation),
-      maxRotation: parseFloat(maxRotation),
-      size: parseFloat(sizeValue),
-      rotation: parseFloat(rotationValue),
-    });
-  }, [
-    randomSize,
-    randomRotation,
-    minSize,
-    maxSize,
-    minRotation,
-    maxRotation,
-    sizeValue,
-    rotationValue,
-  ]);
+  const updateSettings = (updates) => {
+    const newSettings = { ...settings, ...updates };
+    setSettings(newSettings);
+    onPlacementSettingsChange?.(newSettings);
+  };
 
   return (
     <div className="block-tools-container">
@@ -79,14 +48,7 @@ const BlockToolsSidebar = ({
         <div className="block-buttons-grid">
           {activeTab === "blocks" ? (
             <>
-              <div
-                style={{
-                  width: "100%",
-                  borderBottom: "2px solid #ccc",
-                  fontSize: "12px",
-                  textAlign: "left",
-                }}
-              >
+              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
                 Default Blocks (ID: 1-99)
               </div>
               {blockTypes.map((blockType) => (
@@ -102,14 +64,7 @@ const BlockToolsSidebar = ({
                   handleDragStart={handleDragStart}
                 />
               ))}
-              <div
-                style={{
-                  width: "100%",
-                  borderBottom: "2px solid #ccc",
-                  fontSize: "12px",
-                  textAlign: "left",
-                }}
-              >
+              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
                 Custom Blocks (ID: 100-199)
               </div>
               {customBlocks.map((blockType) => (
@@ -127,55 +82,35 @@ const BlockToolsSidebar = ({
               ))}
             </>
           ) : (
-            <>
-              <div className="environment-button-wrapper">
-                <div
-                  style={{
-                    width: "100%",
-                    borderBottom: "2px solid #ccc",
-                    fontSize: "12px",
-                    textAlign: "left",
-                  }}
-                >
-                  Default Environment Objects (ID: 200-299)
-                </div>
-                {environmentModels
-                  .filter((envType) => !envType.isCustom)
-                  .map((envType) => (
-                    <EnvironmentButton
-                      key={envType.id}
-                      envType={envType}
-                      isSelected={envType.id === currentBlockType?.id}
-                      onSelect={handleEnvironmentSelect}
-                      onDelete={handleDeleteEnvironmentModel}
-                    />
-                  ))}
-                <div
-                  style={{
-                    width: "100%",
-                    borderBottom: "2px solid #ccc",
-                    fontSize: "12px",
-                    textAlign: "left",
-                    marginTop: "10px",
-                  }}
-                >
-                  Custom Environment Objects (ID: 300+)
-                </div>
-                {environmentModels
-                  .filter((envType) => envType.isCustom)
-                  .map((envType) => (
-                    <EnvironmentButton
-                      key={envType.id}
-                      envType={envType}
-                      isSelected={envType.id === currentBlockType?.id}
-                      onSelect={handleEnvironmentSelect}
-                      onDelete={handleDeleteEnvironmentModel}
-                    />
-                  ))}
+            <div className="environment-button-wrapper">
+              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
+                Default Environment Objects (ID: 200-299)
               </div>
-            </>
+              {environmentModels.filter(envType => !envType.isCustom).map((envType) => (
+                <EnvironmentButton
+                  key={envType.id}
+                  envType={envType}
+                  isSelected={envType.id === currentBlockType?.id}
+                  onSelect={handleEnvironmentSelect}
+                  onDelete={handleDeleteEnvironmentModel}
+                />
+              ))}
+              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left", marginTop: "10px" }}>
+                Custom Environment Objects (ID: 300+)
+              </div>
+              {environmentModels.filter(envType => envType.isCustom).map((envType) => (
+                <EnvironmentButton
+                  key={envType.id}
+                  envType={envType}
+                  isSelected={envType.id === currentBlockType?.id}
+                  onSelect={handleEnvironmentSelect}
+                  onDelete={handleDeleteEnvironmentModel}
+                />
+              ))}
+            </div>
           )}
         </div>
+
         {activeTab === "environment" && (
           <div className="placement-tools">
             <div className="placement-tools-grid">
@@ -183,12 +118,12 @@ const BlockToolsSidebar = ({
                 <div className="randomize-header">
                   <input 
                     type="checkbox" 
-                    id="randomSize"
+                    id="randomScale"
                     className="placement-checkbox"
-                    checked={randomSize}
-                    onChange={(e) => setRandomSize(e.target.checked)}
+                    checked={settings.randomScale}
+                    onChange={(e) => updateSettings({ randomScale: e.target.checked })}
                   />
-                  <label htmlFor="randomSize">Randomize Scale</label>
+                  <label htmlFor="randomScale">Randomize Scale</label>
                 </div>
                 <div className="min-max-inputs">
                   <div className="min-max-input">
@@ -196,23 +131,20 @@ const BlockToolsSidebar = ({
                     <input 
                       type="number"
                       className="slider-value-input"
-                      value={tempMinSize}
+                      value={settings.minScale}
+                      min={SCALE_MIN}
+                      max={SCALE_MAX}
                       step="0.1"
-                      disabled={!randomSize}
-                      onChange={(e) => setTempMinSize(e.target.value)}
+                      disabled={!settings.randomScale}
+                      onChange={(e) => updateSettings({ minScale: Number(e.target.value) })}
                       onBlur={(e) => {
                         const value = Number(e.target.value);
-                        if (value >= SIZE_MIN && value <= SIZE_MAX) {
-                          setMinSize(value.toFixed(1));
-                          setTempMinSize(value.toFixed(1));
-                        } else {
-                          alert(`Please enter a value between ${SIZE_MIN} and ${SIZE_MAX}!`);
-                          setTempMinSize(minSize);
+                        if (value < SCALE_MIN || value > SCALE_MAX) {
+                          alert(`Please enter a value between ${SCALE_MIN} and ${SCALE_MAX}!`);
+                          updateSettings({ minScale: 0.5 });
                         }
                       }}
                       onKeyDown={(e) => e.stopPropagation()}
-                      min={SIZE_MIN}
-                      max={SIZE_MAX}
                     />
                   </div>
                   <div className="min-max-input">
@@ -220,113 +152,99 @@ const BlockToolsSidebar = ({
                     <input 
                       type="number"
                       className="slider-value-input"
-                      value={tempMaxSize}
+                      value={settings.maxScale}
+                      min={SCALE_MIN}
+                      max={SCALE_MAX}
                       step="0.1"
-                      disabled={!randomSize}
-                      onChange={(e) => setTempMaxSize(e.target.value)}
+                      disabled={!settings.randomScale}
+                      onChange={(e) => updateSettings({ maxScale: Number(e.target.value) })}
                       onBlur={(e) => {
                         const value = Number(e.target.value);
-                        if (value >= SIZE_MIN && value <= SIZE_MAX) {
-                          setMaxSize(value.toFixed(1));
-                          setTempMaxSize(value.toFixed(1));
-                        } else {
-                          alert(`Please enter a value between ${SIZE_MIN} and ${SIZE_MAX}!`);
-                          setTempMaxSize(maxSize);
+                        if (value < SCALE_MIN || value > SCALE_MAX) {
+                          alert(`Please enter a value between ${SCALE_MIN} and ${SCALE_MAX}!`);
+                          updateSettings({ maxScale: 1.5 });
                         }
                       }}
                       onKeyDown={(e) => e.stopPropagation()}
-                      min={SIZE_MIN}
-                      max={SIZE_MAX}
                     />
                   </div>
                 </div>
               </div>
+
               <div className="placement-tool full-width">
                 <div className="randomize-header">
                   <input 
                     type="checkbox" 
                     id="randomRotation"
                     className="placement-checkbox"
-                    checked={randomRotation}
-                    onChange={(e) => setRandomRotation(e.target.checked)}
+                    checked={settings.randomRotation}
+                    onChange={(e) => updateSettings({ randomRotation: e.target.checked })}
                   />
                   <label htmlFor="randomRotation">Randomize Rotation</label>
                 </div>
                 <div className="min-max-inputs">
                   <div className="min-max-input">
-                    <div className="slider-value-wrapper">
-                      <label>Range: </label>
-                      <input 
-                        type="number"
-                        className="slider-value-input"
-                        value={tempMinRotation}
-                        min={ROTATION_MIN}
-                        max={ROTATION_MAX}
-                        step="15"
-                        disabled={!randomRotation}
-                        onChange={(e) => setTempMinRotation(e.target.value)}
-                        onBlur={(e) => {
-                          const value = Number(e.target.value);
-                          if (value >= ROTATION_MIN && value <= ROTATION_MAX) {
-                            setMinRotation(value);
-                            setTempMinRotation(value);
-                          } else {
-                            alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
-                            setTempMinRotation(minRotation);
-                          }
-                        }}
-                        onKeyDown={(e) => e.stopPropagation()}
-                      />
-                    </div>
+                    <label>Range: </label>
+                    <input 
+                      type="number"
+                      className="slider-value-input"
+                      value={settings.minRotation}
+                      min={ROTATION_MIN}
+                      max={ROTATION_MAX}
+                      step="15"
+                      disabled={!settings.randomRotation}
+                      onChange={(e) => updateSettings({ minRotation: Number(e.target.value) })}
+                      onBlur={(e) => {
+                        const value = Number(e.target.value);
+                        if (value < ROTATION_MIN || value > ROTATION_MAX) {
+                          alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
+                          updateSettings({ minRotation: 0 });
+                        }
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
                   </div>
                   <div className="min-max-input">
                     <label>-</label>
-                    <div className="slider-value-wrapper">
-                      <input 
-                        type="number"
-                        className="slider-value-input"
-                        value={tempMaxRotation}
-                        min={ROTATION_MIN}
-                        max={ROTATION_MAX}
-                        step="5"
-                        disabled={!randomRotation}
-                        onChange={(e) => setTempMaxRotation(e.target.value)}
-                        onBlur={(e) => {
-                          const value = Number(e.target.value);
-                          if (value >= ROTATION_MIN && value <= ROTATION_MAX) {
-                            setMaxRotation(value);
-                            setTempMaxRotation(value);
-                          } else {
-                            alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
-                            setTempMaxRotation(maxRotation);
-                          }
-                        }}
-                        onKeyDown={(e) => e.stopPropagation()}
-                      />
-                    </div>
+                    <input 
+                      type="number"
+                      className="slider-value-input"
+                      value={settings.maxRotation}
+                      min={ROTATION_MIN}
+                      max={ROTATION_MAX}
+                      step="15"
+                      disabled={!settings.randomRotation}
+                      onChange={(e) => updateSettings({ maxRotation: Number(e.target.value) })}
+                      onBlur={(e) => {
+                        const value = Number(e.target.value);
+                        if (value < ROTATION_MIN || value > ROTATION_MAX) {
+                          alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
+                          updateSettings({ maxRotation: 360 });
+                        }
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </div>
               </div>
+
               <div className="placement-tool-slider">
                 <div className="slider-header">
-                  <label htmlFor="placementSize">Object Scale</label>
+                  <label htmlFor="placementScale">Object Scale</label>
                   <input 
                     type="number"
                     className="slider-value-input"
-                    value={tempSizeValue}
-                    min={SIZE_MIN}
-                    max={SIZE_MAX}
+                    value={settings.scale}
+                    min={SCALE_MIN}
+                    max={SCALE_MAX}
                     step="0.1"
-                    disabled={randomSize}
-                    onChange={(e) => setTempSizeValue(e.target.value)}
+                    disabled={settings.randomScale}
+                    onChange={(e) => updateSettings({ scale: Number(e.target.value) })}
                     onBlur={(e) => {
                       const value = Number(e.target.value);
-                      if (value >= SIZE_MIN && value <= SIZE_MAX) {
-                        setSizeValue(value.toFixed(1));
-                        setTempSizeValue(value.toFixed(1));
-                      } else {
-                        alert(`Please enter a value between ${SIZE_MIN} and ${SIZE_MAX}!`);
-                        setTempSizeValue(sizeValue);
+                      if (value < SCALE_MIN || value > SCALE_MAX) {
+                        alert(`Please enter a value between ${SCALE_MIN} and ${SCALE_MAX}!`);
+                        updateSettings({ scale: 1.0 });
                       }
                     }}
                     onKeyDown={(e) => e.stopPropagation()}
@@ -334,41 +252,39 @@ const BlockToolsSidebar = ({
                 </div>
                 <input 
                   type="range" 
-                  id="placementSize"
-                  min={SIZE_MIN}
-                  max={SIZE_MAX}
+                  id="placementScale"
+                  min={SCALE_MIN}
+                  max={SCALE_MAX}
                   step="0.1"
-                  value={tempSizeValue}
+                  value={settings.scale}
                   className="placement-slider"
-                  onChange={(e) => setTempSizeValue(Number(e.target.value).toFixed(1))}
-                  disabled={randomSize}
+                  onChange={(e) => updateSettings({ scale: Number(e.target.value) })}
+                  disabled={settings.randomScale}
                 />
               </div>
+
               <div className="placement-tool-slider">
                 <div className="slider-header">
                   <label htmlFor="placementRotation">Rotation</label>
                   <input 
-                      type="number"
-                      className="slider-value-input"
-                      value={tempRotationValue}
-                      min={ROTATION_MIN}
-                      max={ROTATION_MAX}
-                      step="15"
-                      disabled={randomRotation}
-                      onChange={(e) => setTempRotationValue(e.target.value)}
-                      onBlur={(e) => {
-                        const value = Number(e.target.value);
-                        if (value >= ROTATION_MIN && value <= ROTATION_MAX) {
-                          setRotationValue(value);
-                          setTempRotationValue(value);
-                        } else {
-                          alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
-                          setTempRotationValue(rotationValue);
-                        }
-                      }}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    />
-                    <span className="degree-symbol">°</span>
+                    type="number"
+                    className="slider-value-input"
+                    value={settings.rotation}
+                    min={ROTATION_MIN}
+                    max={ROTATION_MAX}
+                    step="15"
+                    disabled={settings.randomRotation}
+                    onChange={(e) => updateSettings({ rotation: Number(e.target.value) })}
+                    onBlur={(e) => {
+                      const value = Number(e.target.value);
+                      if (value < ROTATION_MIN || value > ROTATION_MAX) {
+                        alert(`Please enter a value between ${ROTATION_MIN} and ${ROTATION_MAX}!`);
+                        updateSettings({ rotation: 0 });
+                      }
+                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                  <span className="degree-symbol">°</span>
                 </div>
                 <input 
                   type="range" 
@@ -376,17 +292,17 @@ const BlockToolsSidebar = ({
                   min={ROTATION_MIN}
                   max={ROTATION_MAX}
                   step="15"
-                  value={tempRotationValue}
+                  value={settings.rotation}
                   className="placement-slider"
-                  onChange={(e) => setTempRotationValue(e.target.value)}
-                  disabled={randomRotation}
+                  onChange={(e) => updateSettings({ rotation: Number(e.target.value) })}
+                  disabled={settings.randomRotation}
                 />
               </div>
             </div>
           </div>
         )}
-        <div
-          className="texture-drop-zone"
+
+        <div className="texture-drop-zone"
           onDragOver={(e) => {
             e.preventDefault();
             e.currentTarget.classList.add("drag-over");
@@ -400,19 +316,16 @@ const BlockToolsSidebar = ({
           <div className="drop-zone-content">
             <div className="drop-zone-icons">
               <FaUpload className="upload-icon" />
-              {activeTab === "blocks" ? (
-                <FaCube className="block-icon" />
-              ) : (
-                <FaTree className="block-icon" />
-              )}
+              {activeTab === "blocks" ? <FaCube className="block-icon" /> : <FaTree className="block-icon" />}
             </div>
             <div className="drop-zone-text">
-              {activeTab === "blocks"
+              {activeTab === "blocks" 
                 ? "Drag textures here to add new blocks"
                 : "Drag .gltf models here to add new environment objects"}
             </div>
           </div>
         </div>
+
         <div className="tab-button-wrapper">
           <button
             className={`tab-button ${activeTab === "blocks" ? "active" : ""}`}
@@ -421,9 +334,7 @@ const BlockToolsSidebar = ({
             Blocks
           </button>
           <button
-            className={`tab-button ${
-              activeTab === "environment" ? "active" : ""
-            }`}
+            className={`tab-button ${activeTab === "environment" ? "active" : ""}`}
             onClick={() => handleTabChange("environment")}
           >
             Environment

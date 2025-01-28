@@ -30,7 +30,6 @@ import "./css/App.css";
 import { generatePerlinNoise } from "perlin-noise";
 import { cameraManager } from "./js/Camera";
 import { soundManager } from "./js/Sound";
-import BlockButton from './js/components/BlockButton';
 import DebugInfo from './js/components/DebugInfo';
 import { DatabaseManager, STORES } from './js/DatabaseManager';
 import JSZip from 'jszip';
@@ -39,325 +38,6 @@ import BlockToolsSidebar from './js/components/BlockToolsSidebar';
 
 /// change this to the version number of the map builder
 const version = "1.3.1";
-
-// Add this near the top of the file, before the App function
-const LoadingScreen = () => (
-  <div className="loading-screen">
-    <img src={hytopiaLogo} alt="Hytopia Logo" className="loading-logo" />
-    <div className="loading-spinner"></div>
-    <div className="loading-text">
-      <i>Loading...</i>
-    </div>
-    <div className="version-text">HYTOPIA Map Builder v{version}</div>
-  </div>
-);
-
-const scanDirectory = async () => {
-  const context = require.context('../public/assets', true, /\.(png|jpe?g|glb|gltf|json|wav|mp3|ogg|pem|key|crt)$/);
-  return context.keys().map(key => key.replace('./', ''));
-};
-
-const handleExport = async (terrain) => {
-  try {
-    if (!terrain || Object.keys(terrain).length === 0) {
-      alert("No map found to export!");
-      return;
-    }
-
-    const zip = new JSZip();
-    const assetsFolder = zip.folder("assets");
-    const blocksFolder = assetsFolder.folder("blocks");
-    const mapsFolder = assetsFolder.folder("maps");
-    const modelsFolder = assetsFolder.folder("models/environment");
-    const certsFolder = assetsFolder.folder("certs");
-    const soundsFolder = assetsFolder.folder("sounds");
-    const skyboxesFolder = assetsFolder.folder("skyboxes");
-
-    // Add custom GLTF models from IndexedDB - Add logging to debug
-    const customModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models') || [];
-    console.log('Custom models to export:', customModels);
-    
-    for (const model of customModels) {
-      try {
-        if (!model.data) {
-          console.warn(`No data found for model ${model.name}`);
-          continue;
-        }
-        
-        // Convert ArrayBuffer to blob
-        const blob = new Blob([model.data], { type: 'model/gltf+json' });
-        console.log(`Adding model to zip: ${model.name}.gltf`);
-        
-        // Add to zip in the models/environment directory
-        await modelsFolder.file(`${model.name}.gltf`, blob);
-      } catch (error) {
-        console.error(`Failed to add model ${model.name}:`, error);
-        continue;
-      }
-    }
-
-    // 1. Create and add the map JSON
-    const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-    
-    const simplifiedTerrain = Object.entries(terrain).reduce(
-      (acc, [key, value]) => {
-        if (key.split(",").length === 3) {
-          acc[key] = value.id;
-        }
-        return acc;
-      },
-      {}
-    );
-
-    const allBlockTypes = getBlockTypes();
-    
-    const exportData = {
-      blockTypes: Array.from(
-        new Map(
-          allBlockTypes.map(block => [
-            block.id,
-            {
-              id: block.id,
-              name: block.name,
-              textureUri: block.isMultiTexture
-                ? `blocks/${block.name}`
-                : `blocks/${block.name}.png`,
-              isCustom: block.isCustom || false
-            }
-          ])
-        ).values()
-      ),
-      blocks: simplifiedTerrain,
-      entities: environmentObjects.reduce((acc, obj) => {
-        const entityType = environmentModels.find(model => 
-          model.modelUrl === obj.modelUrl
-        );
-        
-        if (entityType) {
-          const quaternion = new THREE.Quaternion();
-          quaternion.setFromEuler(new THREE.Euler(
-            obj.rotation.x,
-            obj.rotation.y,
-            obj.rotation.z
-          ));
-
-          const modelUri = entityType.isCustom 
-            ? `models/environment/${entityType.name}.gltf`
-            : obj.modelUrl.replace('assets/', '');
-
-          // Calculate adjusted Y position
-          const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-          const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-          const adjustedY = obj.position.y + 0.5 + verticalOffset;
-
-          // Use adjusted Y in the key
-          const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
-
-          acc[key] = {
-            modelUri: modelUri,
-            modelLoopedAnimations: entityType.animations || ["idle"],
-            modelScale: obj.scale.x,
-            name: entityType.name,
-            rigidBodyOptions: {
-              type: "kinematic_velocity",
-              rotation: {
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-                w: quaternion.w
-              }
-            }
-          };
-        }
-        return acc;
-      }, {})
-    };
-
-    // Add map JSON to the maps folder
-    mapsFolder.file("terrain.json", JSON.stringify(exportData, null, 2));
-
-    // 2. Add custom block textures from IndexedDB
-    const customBlocks = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, 'blocks') || [];
-    for (const block of customBlocks) {
-      // Convert base64 to blob
-      const base64Data = block.textureUri.split(',')[1];
-      const binaryData = atob(base64Data);
-      const array = new Uint8Array(binaryData.length);
-      for (let i = 0; i < binaryData.length; i++) {
-        array[i] = binaryData.charCodeAt(i);
-      }
-      const blob = new Blob([array], { type: 'image/png' });
-      
-      // Add to zip
-      blocksFolder.file(`${block.name}.png`, blob);
-    }
-
-    // 3. Dynamically add all default assets
-    const addDefaultassets = async () => {
-      try {
-        // Scan assets directory for all files
-        const files = await scanDirectory();
-        
-        // Add each file to the zip
-        const promises = [];
-        for (const filePath of files) {
-          const task = new Promise(async (resolve) => {
-            try {
-                const response = await fetch(`/assets/${filePath}`);
-                if (!response.ok) {
-                  console.warn(`Failed to fetch file ${filePath}`);
-                  return;
-                }
-                
-                const blob = await response.blob();
-                
-                // Special handling for different asset types
-                if (filePath.includes('certs/')) {
-                  // Just store the cert file directly in the certs folder
-                  const certFileName = filePath.split('/').pop();
-                  certsFolder.file(certFileName, blob);
-                } else if (filePath.startsWith('sounds/')) {
-                  soundsFolder.file(filePath.replace('sounds/', ''), blob);
-                } else if (filePath.startsWith('skyboxes/')) {
-                  skyboxesFolder.file(filePath.replace('skyboxes/', ''), blob);
-                } else {
-                  assetsFolder.file(filePath, blob);
-                }
-              } catch (error) {
-                console.warn(`Failed to add file ${filePath}:`, error);
-                return;
-              }
-              finally {
-                resolve();
-              }
-          });
-          promises.push(task);
-        }
-
-        await Promise.all(promises);
-      } catch (error) {
-        console.error('Error adding default assets:', error);
-        throw error;
-      }
-    };
-
-    await addDefaultassets();
-
-    // 4. Generate and download the zip - Add logging before generating
-    console.log('Folders in zip:', Object.keys(zip.files));
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "hytopia_build_"+ version +"_assets.zip";
-    a.click();
-    URL.revokeObjectURL(url);
-
-  } catch (error) {
-    console.error("Error exporting map:", error);
-    alert("Error exporting map. Please try again.");
-  }
-};
-
-const handleExportMap = async (terrain) => {
-  try {
-    if (!terrain || Object.keys(terrain).length === 0) {
-      alert("No map found to export!");
-      return;
-    }
-
-    // Create the map data structure
-    const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-    
-    const simplifiedTerrain = Object.entries(terrain).reduce(
-      (acc, [key, value]) => {
-        if (key.split(",").length === 3) {
-          acc[key] = value.id;
-        }
-        return acc;
-      },
-      {}
-    );
-
-    const allBlockTypes = getBlockTypes();
-    
-    const exportData = {
-      blockTypes: Array.from(
-        new Map(
-          allBlockTypes.map(block => [
-            block.id,
-            {
-              id: block.id,
-              name: block.name,
-              textureUri: block.isMultiTexture
-                ? `blocks/${block.name}`
-                : `blocks/${block.name}.png`,
-              isCustom: block.isCustom || false
-            }
-          ])
-        ).values()
-      ),
-      blocks: simplifiedTerrain,
-      entities: environmentObjects.reduce((acc, obj) => {
-        const entityType = environmentModels.find(model => 
-          model.modelUrl === obj.modelUrl
-        );
-        
-        if (entityType) {
-          const quaternion = new THREE.Quaternion();
-          quaternion.setFromEuler(new THREE.Euler(
-            obj.rotation.x,
-            obj.rotation.y,
-            obj.rotation.z
-          ));
-
-          const modelUri = entityType.isCustom 
-            ? `models/environment/${entityType.name}.gltf`
-            : obj.modelUrl.replace('assets/', '');
-
-          // Calculate adjusted Y position
-          const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-          const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-          const adjustedY = obj.position.y + 0.5 + verticalOffset;
-
-          // Use adjusted Y in the key
-          const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
-
-          acc[key] = {
-            modelUri: modelUri,
-            modelLoopedAnimations: entityType.animations || ["idle"],
-            modelScale: obj.scale.x,
-            name: entityType.name,
-            rigidBodyOptions: {
-              type: "kinematic_velocity",
-              rotation: {
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-                w: quaternion.w
-              }
-            }
-          };
-        }
-        return acc;
-      }, {})
-    };
-
-    // Create and download the JSON file
-    const jsonContent = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonContent], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "terrain.json";
-    a.click();
-    URL.revokeObjectURL(url);
-
-  } catch (error) {
-    console.error("Error exporting map:", error);
-    alert("Error exporting map. Please try again.");
-  }
-};
 
 function App() {
   const [terrain, setTerrainState] = useState({});
@@ -411,6 +91,23 @@ function App() {
 
   const [scene, setScene] = useState(null);
   const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
+
+  /// BlockToolsSidebar props
+  const [fixedScale, setFixedScale] = useState(1);
+  const [fixedRotation, setFixedRotation] = useState({ x: 0, y: 0, z: 0 });
+  const [minScale, setMinScale] = useState(0.5);
+  const [maxScale, setMaxScale] = useState(1.5);
+
+  const [placementSettings, setPlacementSettings] = useState({
+    randomScale: false,
+    randomRotation: false,
+    minScale: 0.5,
+    maxScale: 1.5,
+    minRotation: 0,
+    maxRotation: 360,
+    scale: 1.0,
+    rotation: 0
+  });
 
   useEffect(() => {
     terrainRef.current = terrain;
@@ -1612,6 +1309,325 @@ function App() {
     }
   };
 
+    // Add this near the top of the file, before the App function
+  const LoadingScreen = () => (
+    <div className="loading-screen">
+      <img src={hytopiaLogo} alt="Hytopia Logo" className="loading-logo" />
+      <div className="loading-spinner"></div>
+      <div className="loading-text">
+        <i>Loading...</i>
+      </div>
+      <div className="version-text">HYTOPIA Map Builder v{version}</div>
+    </div>
+  );
+
+  const scanDirectory = async () => {
+    const context = require.context('../public/assets', true, /\.(png|jpe?g|glb|gltf|json|wav|mp3|ogg|pem|key|crt)$/);
+    return context.keys().map(key => key.replace('./', ''));
+  };
+
+  const handleExport = async (terrain) => {
+    try {
+      if (!terrain || Object.keys(terrain).length === 0) {
+        alert("No map found to export!");
+        return;
+      }
+
+      const zip = new JSZip();
+      const assetsFolder = zip.folder("assets");
+      const blocksFolder = assetsFolder.folder("blocks");
+      const mapsFolder = assetsFolder.folder("maps");
+      const modelsFolder = assetsFolder.folder("models/environment");
+      const certsFolder = assetsFolder.folder("certs");
+      const soundsFolder = assetsFolder.folder("sounds");
+      const skyboxesFolder = assetsFolder.folder("skyboxes");
+
+      // Add custom GLTF models from IndexedDB - Add logging to debug
+      const customModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models') || [];
+      console.log('Custom models to export:', customModels);
+      
+      for (const model of customModels) {
+        try {
+          if (!model.data) {
+            console.warn(`No data found for model ${model.name}`);
+            continue;
+          }
+          
+          // Convert ArrayBuffer to blob
+          const blob = new Blob([model.data], { type: 'model/gltf+json' });
+          console.log(`Adding model to zip: ${model.name}.gltf`);
+          
+          // Add to zip in the models/environment directory
+          await modelsFolder.file(`${model.name}.gltf`, blob);
+        } catch (error) {
+          console.error(`Failed to add model ${model.name}:`, error);
+          continue;
+        }
+      }
+
+      // 1. Create and add the map JSON
+      const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+      
+      const simplifiedTerrain = Object.entries(terrain).reduce(
+        (acc, [key, value]) => {
+          if (key.split(",").length === 3) {
+            acc[key] = value.id;
+          }
+          return acc;
+        },
+        {}
+      );
+
+      const allBlockTypes = getBlockTypes();
+      
+      const exportData = {
+        blockTypes: Array.from(
+          new Map(
+            allBlockTypes.map(block => [
+              block.id,
+              {
+                id: block.id,
+                name: block.name,
+                textureUri: block.isMultiTexture
+                  ? `blocks/${block.name}`
+                  : `blocks/${block.name}.png`,
+                isCustom: block.isCustom || false
+              }
+            ])
+          ).values()
+        ),
+        blocks: simplifiedTerrain,
+        entities: environmentObjects.reduce((acc, obj) => {
+          const entityType = environmentModels.find(model => 
+            model.modelUrl === obj.modelUrl
+          );
+          
+          if (entityType) {
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromEuler(new THREE.Euler(
+              obj.rotation.x,
+              obj.rotation.y,
+              obj.rotation.z
+            ));
+
+            const modelUri = entityType.isCustom 
+              ? `models/environment/${entityType.name}.gltf`
+              : obj.modelUrl.replace('assets/', '');
+
+            // Calculate adjusted Y position
+            const boundingBoxHeight = entityType.boundingBoxHeight || 1;
+            const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
+            const adjustedY = obj.position.y + 0.5 + verticalOffset;
+
+            // Use adjusted Y in the key
+            const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
+
+            acc[key] = {
+              modelUri: modelUri,
+              modelLoopedAnimations: entityType.animations || ["idle"],
+              modelScale: obj.scale.x,
+              name: entityType.name,
+              rigidBodyOptions: {
+                type: "kinematic_velocity",
+                rotation: {
+                  x: quaternion.x,
+                  y: quaternion.y,
+                  z: quaternion.z,
+                  w: quaternion.w
+                }
+              }
+            };
+          }
+          return acc;
+        }, {})
+      };
+
+      // Add map JSON to the maps folder
+      mapsFolder.file("terrain.json", JSON.stringify(exportData, null, 2));
+
+      // 2. Add custom block textures from IndexedDB
+      const customBlocks = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, 'blocks') || [];
+      for (const block of customBlocks) {
+        // Convert base64 to blob
+        const base64Data = block.textureUri.split(',')[1];
+        const binaryData = atob(base64Data);
+        const array = new Uint8Array(binaryData.length);
+        for (let i = 0; i < binaryData.length; i++) {
+          array[i] = binaryData.charCodeAt(i);
+        }
+        const blob = new Blob([array], { type: 'image/png' });
+        
+        // Add to zip
+        blocksFolder.file(`${block.name}.png`, blob);
+      }
+
+      // 3. Dynamically add all default assets
+      const addDefaultassets = async () => {
+        try {
+          // Scan assets directory for all files
+          const files = await scanDirectory();
+          
+          // Add each file to the zip
+          const promises = [];
+          for (const filePath of files) {
+            const task = new Promise(async (resolve) => {
+              try {
+                  const response = await fetch(`/assets/${filePath}`);
+                  if (!response.ok) {
+                    console.warn(`Failed to fetch file ${filePath}`);
+                    return;
+                  }
+                  
+                  const blob = await response.blob();
+                  
+                  // Special handling for different asset types
+                  if (filePath.includes('certs/')) {
+                    // Just store the cert file directly in the certs folder
+                    const certFileName = filePath.split('/').pop();
+                    certsFolder.file(certFileName, blob);
+                  } else if (filePath.startsWith('sounds/')) {
+                    soundsFolder.file(filePath.replace('sounds/', ''), blob);
+                  } else if (filePath.startsWith('skyboxes/')) {
+                    skyboxesFolder.file(filePath.replace('skyboxes/', ''), blob);
+                  } else {
+                    assetsFolder.file(filePath, blob);
+                  }
+                } catch (error) {
+                  console.warn(`Failed to add file ${filePath}:`, error);
+                  return;
+                }
+                finally {
+                  resolve();
+                }
+            });
+            promises.push(task);
+          }
+
+          await Promise.all(promises);
+        } catch (error) {
+          console.error('Error adding default assets:', error);
+          throw error;
+        }
+      };
+
+      await addDefaultassets();
+
+      // 4. Generate and download the zip - Add logging before generating
+      console.log('Folders in zip:', Object.keys(zip.files));
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "hytopia_build_"+ version +"_assets.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error("Error exporting map:", error);
+      alert("Error exporting map. Please try again.");
+    }
+  };
+
+  const handleExportMap = async (terrain) => {
+    try {
+      if (!terrain || Object.keys(terrain).length === 0) {
+        alert("No map found to export!");
+        return;
+      }
+
+      // Create the map data structure
+      const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
+      
+      const simplifiedTerrain = Object.entries(terrain).reduce(
+        (acc, [key, value]) => {
+          if (key.split(",").length === 3) {
+            acc[key] = value.id;
+          }
+          return acc;
+        },
+        {}
+      );
+
+      const allBlockTypes = getBlockTypes();
+      
+      const exportData = {
+        blockTypes: Array.from(
+          new Map(
+            allBlockTypes.map(block => [
+              block.id,
+              {
+                id: block.id,
+                name: block.name,
+                textureUri: block.isMultiTexture
+                  ? `blocks/${block.name}`
+                  : `blocks/${block.name}.png`,
+                isCustom: block.isCustom || false
+              }
+            ])
+          ).values()
+        ),
+        blocks: simplifiedTerrain,
+        entities: environmentObjects.reduce((acc, obj) => {
+          const entityType = environmentModels.find(model => 
+            model.modelUrl === obj.modelUrl
+          );
+          
+          if (entityType) {
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromEuler(new THREE.Euler(
+              obj.rotation.x,
+              obj.rotation.y,
+              obj.rotation.z
+            ));
+
+            const modelUri = entityType.isCustom 
+              ? `models/environment/${entityType.name}.gltf`
+              : obj.modelUrl.replace('assets/', '');
+
+            // Calculate adjusted Y position
+            const boundingBoxHeight = entityType.boundingBoxHeight || 1;
+            const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
+            const adjustedY = obj.position.y + 0.5 + verticalOffset;
+
+            // Use adjusted Y in the key
+            const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
+
+            acc[key] = {
+              modelUri: modelUri,
+              modelLoopedAnimations: entityType.animations || ["idle"],
+              modelScale: obj.scale.x,
+              name: entityType.name,
+              rigidBodyOptions: {
+                type: "kinematic_velocity",
+                rotation: {
+                  x: quaternion.x,
+                  y: quaternion.y,
+                  z: quaternion.z,
+                  w: quaternion.w
+                }
+              }
+            };
+          }
+          return acc;
+        }, {})
+      };
+
+      // Create and download the JSON file
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "terrain.json";
+      a.click();
+      URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error("Error exporting map:", error);
+      alert("Error exporting map. Please try again.");
+    }
+  };
+
   return (
     <div className="App">
       {/* Loading Screen */}
@@ -1625,18 +1641,24 @@ function App() {
 
       {/* Block Tools Section */}
       <BlockToolsSidebar
+        // Core functionality
         activeTab={activeTab}
         blockTypes={blockTypes}
         currentBlockType={currentBlockType}
         customBlocks={customBlocks}
+        environmentModels={environmentModels}
+        
+        // Event handlers
         handleTabChange={handleTabChange}
         setCurrentBlockType={setCurrentBlockType}
         handleDeleteCustomBlock={handleDeleteCustomBlock}
         handleDragStart={handleDragStart}
         handleEnvironmentSelect={handleEnvironmentSelect}
         handleDeleteEnvironmentModel={handleDeleteEnvironmentModel}
-        environmentModels={environmentModels}
         handleDrop={handleDrop}
+        
+        // Placement settings
+        onPlacementSettingsChange={setPlacementSettings}
       />
 
       <Canvas shadows className="canvas-container">
@@ -1652,8 +1674,6 @@ function App() {
           cameraReset={cameraReset}
           cameraAngle={cameraAngle}
           onCameraAngleChange={handleCameraAngleChange}
-          placementSize={placementSize}
-          objectScale={objectScale}
           setPageIsLoaded={setPageIsLoaded}
           currentDraggingBlock={currentDraggingBlock}
           onHandleDropRef={(fn) => (handleDropRef.current = fn)}
@@ -1667,12 +1687,10 @@ function App() {
             ref={environmentBuilder}
             scene={scene}
             currentBlockType={currentBlockType}
-            terrain={terrain}
             mode={mode}
-            previewScale={previewScale}
-            previewRotation={previewRotation}
-            placementSize={placementSize}
             onTotalObjectsChange={setTotalEnvironmentObjects}
+            placementSize={placementSize}
+            placementSettings={placementSettings}
           />
         )}
       </Canvas>
