@@ -1671,6 +1671,7 @@ function App() {
           setTotalBlocks={setTotalBlocks}
           axisLockEnabled={axisLockEnabled}
           gridSize={gridSize}
+          placementSize={placementSize}
           cameraReset={cameraReset}
           cameraAngle={cameraAngle}
           onCameraAngleChange={handleCameraAngleChange}

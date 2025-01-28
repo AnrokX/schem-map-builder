@@ -91,8 +91,6 @@ function TerrainBuilder({
   onSceneReady,
   environmentBuilder,
   totalEnvironmentObjects,
-  undoStates,
-  redoStates,
   setUndoStates,
   setRedoStates
 }) {
@@ -490,20 +488,12 @@ function TerrainBuilder({
     const intersects = raycaster.intersectObjects(Object.values(instancedMeshRefs.current));
     if (!intersects.length) return null;
 
-    if (mode === 'remove') {
-      const matrix = new THREE.Matrix4();
-      intersects[0].object.getMatrixAt(intersects[0].instanceId, matrix);
-      const position = new THREE.Vector3();
-      position.setFromMatrixPosition(matrix);
-      return {
-        point: position,
-        normal: intersects[0].face.normal,
-      };
-    }
+    const matrix = new THREE.Matrix4();
+    intersects[0].object.getMatrixAt(intersects[0].instanceId, matrix);
 
     return {
-      point: intersects[0].point,
-      normal: intersects[0].face.normal,
+        point: intersects[0].point,
+        normal: intersects[0].face.normal,
     };
   };
 
@@ -527,20 +517,23 @@ function TerrainBuilder({
   const calculateGridPosition = (intersection, mode, currentBlockType, faceNormal) => {
     if (!intersection) return null;
     
-    const position = mode === 'remove' ? 
-        intersection.point.clone() : 
-        intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
-    
-    // Snap to grid based on block type
-    if (!currentBlockType?.isEnvironment) {
-        // Round to nearest integer, but account for floating point imprecision
-        position.x = Math.round(position.x);
-        position.y = Math.round(position.y);
-        position.z = Math.round(position.z);
-        
-    } else {
-        position.y = Math.round(position.y);
-    }
+    let position;
+      // For add mode, offset slightly from the face
+      position = intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
+      
+      if (mode === 'remove') {
+          console.log('remove mode. Face normal: ', faceNormal);
+          position.x = Math.round(position.x - faceNormal.x * 5);
+          position.y = Math.round(position.y - faceNormal.y * 5);
+          position.z = Math.round(position.z - faceNormal.z * 5);
+      }
+      else if (!currentBlockType?.isEnvironment) {
+          position.x = Math.round(position.x);
+          position.y = Math.round(position.y);
+          position.z = Math.round(position.z);
+      } else {
+          position.y = Math.round(position.y);
+      }
 
     return position;
   };
@@ -702,27 +695,49 @@ function TerrainBuilder({
   }, [isInitialized, handleMouseUp]);
 
   const getPlacementPositions = (centerPos, placementSize) => {
-    const positions = [centerPos];
+    const positions = [];
     
-    if (placementSize === 'cross') {
-      positions.push(
-        { x: centerPos.x + 1, y: centerPos.y, z: centerPos.z },
-        { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z },
-        { x: centerPos.x, y: centerPos.y, z: centerPos.z + 1 },
-        { x: centerPos.x, y: centerPos.y, z: centerPos.z - 1 }
-      );
-    } else if (placementSize === 'diamond') {
-      positions.push(
-        { x: centerPos.x + 2, y: centerPos.y, z: centerPos.z },
-        { x: centerPos.x - 2, y: centerPos.y, z: centerPos.z },
-        { x: centerPos.x, y: centerPos.y, z: centerPos.z + 2 },
-        { x: centerPos.x, y: centerPos.y, z: centerPos.z - 2 }
-      );
-      
-      for (let x = -1; x <= 1; x++) {
-        for (let z = -1; z <= 1; z++) {
-          if (Math.abs(x) + Math.abs(z) <= 2) {
-            if (x !== 0 || z !== 0) {
+    // Always include center position
+    positions.push({ ...centerPos });
+    
+    switch (placementSize) {
+      case 'single':
+        break;
+        
+      case 'cross':
+        positions.push(
+          { x: centerPos.x + 1, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z + 1 },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z - 1 }
+        );
+        break;
+        
+      case 'diamond':
+        // 13-block diamond pattern
+        positions.push(
+          // Inner cardinal positions (4 blocks)
+          { x: centerPos.x + 1, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z + 1 },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z - 1 },
+          // Middle diagonal positions (4 blocks)
+          { x: centerPos.x + 1, y: centerPos.y, z: centerPos.z + 1 },
+          { x: centerPos.x + 1, y: centerPos.y, z: centerPos.z - 1 },
+          { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z + 1 },
+          { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z - 1 },
+          // Outer cardinal positions (4 blocks)
+          { x: centerPos.x + 2, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x - 2, y: centerPos.y, z: centerPos.z },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z + 2 },
+          { x: centerPos.x, y: centerPos.y, z: centerPos.z - 2 }
+        );
+        break;
+        
+      case 'square9':
+        for (let x = -1; x <= 1; x++) {
+          for (let z = -1; z <= 1; z++) {
+            if (x !== 0 || z !== 0) {  // Skip center as it's already added
               positions.push({
                 x: centerPos.x + x,
                 y: centerPos.y,
@@ -731,31 +746,21 @@ function TerrainBuilder({
             }
           }
         }
-      }
-    } else if (placementSize === 'square9') {
-      for (let x = -1; x <= 1; x++) {
-        for (let z = -1; z <= 1; z++) {
-          if (x !== 0 || z !== 0) {
-            positions.push({
-              x: centerPos.x + x,
-              y: centerPos.y,
-              z: centerPos.z + z
-            });
+        break;
+        
+      case 'square16':
+        for (let x = -2; x <= 1; x++) {
+          for (let z = -2; z <= 1; z++) {
+            if (x !== 0 || z !== 0) {  // Skip center as it's already added
+              positions.push({
+                x: centerPos.x + x,
+                y: centerPos.y,
+                z: centerPos.z + z
+              });
+            }
           }
         }
-      }
-    } else if (placementSize === 'square16') {
-      for (let x = -1; x <= 2; x++) {
-        for (let z = -1; z <= 2; z++) {
-          if (x !== 0 || z !== 0) {
-            positions.push({
-              x: centerPos.x + x,
-              y: centerPos.y,
-              z: centerPos.z + z
-            });
-          }
-        }
-      }
+        break;
     }
     
     return positions;
