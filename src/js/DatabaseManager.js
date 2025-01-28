@@ -12,8 +12,14 @@ export const STORES = {
 export class DatabaseManager {
   static DB_NAME = 'terrain-builder';
   static DB_VERSION = 10;  // Incremented version number
+  static dbConnection = null;  // Add static property to store connection
 
   static async openDB() {
+    // Return existing connection if available
+    if (this.dbConnection) {
+      return Promise.resolve(this.dbConnection);
+    }
+
     return new Promise((resolve, reject) => {
       // First, check if we need to delete the old database
       const checkRequest = indexedDB.open(this.DB_NAME);
@@ -28,7 +34,10 @@ export class DatabaseManager {
           
           deleteRequest.onsuccess = () => {
             // Now open with the new version
-            this.openNewDB().then(resolve).catch(reject);
+            this.openNewDB().then(db => {
+              this.dbConnection = db;  // Store the connection
+              resolve(db);
+            }).catch(reject);
           };
           
           deleteRequest.onerror = () => {
@@ -37,7 +46,10 @@ export class DatabaseManager {
           };
         } else {
           // If version is current, just open normally
-          this.openNewDB().then(resolve).catch(reject);
+          this.openNewDB().then(db => {
+            this.dbConnection = db;  // Store the connection
+            resolve(db);
+          }).catch(reject);
         }
       };
       
