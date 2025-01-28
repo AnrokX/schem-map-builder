@@ -191,6 +191,18 @@ export const EnvironmentBuilder = forwardRef(({
         }
     }, [scene]); // Only run when scene is available
 
+    // Add effect to update preview when settings change
+    useEffect(() => {
+        if (placeholderMesh && currentBlockType?.isEnvironment) {
+            const transform = getPlacementTransform();
+            console.log('Updating preview with new settings:', transform);
+            
+            // Apply transform only to the root mesh
+            placeholderMesh.scale.copy(transform.scale);
+            placeholderMesh.rotation.copy(transform.rotation);
+        }
+    }, [placementSettings]); // Watch for changes in placement settings
+
     const setupInstancedMesh = async (modelType, gltf) => {
         if (!gltf || !gltf.scene) {
             console.error('Invalid GLTF data for model:', modelType.name);
@@ -342,16 +354,12 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     const setupPreview = (position) => {
-        // Compare with currentBlockType.id instead of currentBlockType
         const modelData = environmentModels.find(model => model.id === currentBlockType.id);
         if (!modelData) {
             console.warn('Model data not found for type:', currentBlockType);
             return;
         }
 
-        ///console.log("Setting up preview for model:", modelData.name);
-        
-        // Get the loaded GLTF model
         const gltf = loadedModels.current.get(modelData.modelUrl);
         if (!gltf) {
             console.warn('GLTF model not loaded for preview');
@@ -362,25 +370,28 @@ export const EnvironmentBuilder = forwardRef(({
         const previewModel = gltf.scene.clone();
         previewModel.userData.modelId = currentBlockType.id;
         
-        // Apply transformations
-        previewModel.scale.set(placementSettings.scale, placementSettings.scale, placementSettings.scale);
-        previewModel.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
-        previewModel.rotation.copy(new THREE.Euler(0, placementSettings.rotation * Math.PI / 180, 0));
+        // Get and apply transform
+        const transform = getPlacementTransform();
         
-        // Make the preview semi-transparent and ensure proper rendering
+        // Apply transforms only to root
+        previewModel.scale.copy(transform.scale);
+        previewModel.rotation.copy(transform.rotation);
+        previewModel.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
+        
+        // Make the preview semi-transparent
         previewModel.traverse((child) => {
             if (child.isMesh) {
                 child.material = child.material.clone();
                 child.material.transparent = true;
+                child.material.opacity = 0.5;
                 child.material.depthWrite = true;
                 child.material.depthTest = true;
                 child.material.alphaTest = 0.5;
-                child.renderOrder = 2; // Higher render order for preview
+                child.renderOrder = 2;
                 child.frustumCulled = false;
             }
         });
         
-        // Add to scene and update state
         scene.add(previewModel);
         setPlaceholderMesh(previewModel);
     };
@@ -657,9 +668,10 @@ export const EnvironmentBuilder = forwardRef(({
 
             // Place instances at all positions
             const placedInstances = positions.map((position) => {
-                // Get randomized or fixed transform for this instance
                 const transform = getPlacementTransform();
+                console.log("Placing instance with transform:", transform);
                 
+                // Create matrix from position and transform
                 const matrix = new THREE.Matrix4();
                 matrix.compose(
                     position,
@@ -681,18 +693,18 @@ export const EnvironmentBuilder = forwardRef(({
 
                 // Store instance data
                 instancedData.instances.set(instanceId, {
-                    position,
-                    rotation: transform.rotation,
-                    scale: transform.scale,
-                    matrix
+                    position: position.clone(),
+                    rotation: transform.rotation.clone(),
+                    scale: transform.scale.clone(),
+                    matrix: matrix.clone()
                 });
 
                 return {
                     modelUrl,
                     instanceId,
-                    position,
-                    rotation: transform.rotation,
-                    scale: transform.scale
+                    position: position.clone(),
+                    rotation: transform.rotation.clone(),
+                    scale: transform.scale.clone()
                 };
             });
 
@@ -789,7 +801,7 @@ export const EnvironmentBuilder = forwardRef(({
 
     const updateInstanceTransform = (modelUrl, instanceId, position, rotation, scale) => {
         const instancedData = instancedMeshes.current.get(modelUrl);
-        if (!instancedData || instanceId >= instancedData.mesh.count) return;
+        if (!instancedData) return;
 
         const matrix = new THREE.Matrix4();
         matrix.compose(
@@ -798,8 +810,11 @@ export const EnvironmentBuilder = forwardRef(({
             scale
         );
 
-        instancedData.mesh.setMatrixAt(instanceId, matrix);
-        instancedData.mesh.instanceMatrix.needsUpdate = true;
+        instancedData.meshes.forEach(mesh => {
+            mesh.setMatrixAt(instanceId, matrix);
+            mesh.instanceMatrix.needsUpdate = true;
+        });
+
         instancedData.instances.set(instanceId, {
             position: position.clone(),
             rotation: rotation.clone(),
@@ -834,9 +849,13 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     const updatePreviewPosition = (position) => {
-        //console.log("updatePreviewPosition", position);
         if (placeholderMesh) {
+            const transform = getPlacementTransform();
+            
+            // Apply transform only to the root mesh
             placeholderMesh.position.copy(position.clone().add(positionOffset.current));
+            placeholderMesh.scale.copy(transform.scale);
+            placeholderMesh.rotation.copy(transform.rotation);
         }
     };
 
