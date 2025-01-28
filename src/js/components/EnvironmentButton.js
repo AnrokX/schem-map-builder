@@ -6,6 +6,7 @@ import { useGLTF } from "@react-three/drei";
 import * as THREE from 'three';
 import { FaTrash } from 'react-icons/fa';
 import { DatabaseManager, STORES } from '../DatabaseManager';
+import '../../css/BlockToolsSidebar.css';
 
 // Add this new component for the 3D preview
 const ModelPreview = ({ modelUrl, onRenderComplete }) => {

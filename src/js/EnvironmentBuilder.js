@@ -601,8 +601,8 @@ export const EnvironmentBuilder = forwardRef(({
             }
 
             const centerPosition = mesh.position.clone();
-            const rotation = mesh.rotation.clone();
-            const scale = mesh.scale.clone();
+            const baseRotation = mesh.rotation.clone();
+            const baseScale = mesh.scale.clone();
 
             // Define positions based on placementSize
             let positions = [centerPosition.clone()]; // Default to single placement
@@ -650,7 +650,7 @@ export const EnvironmentBuilder = forwardRef(({
             }
 
             // Place instances at all positions
-            positions.forEach((position) => {
+            const placedInstances = positions.map((position) => {
                 // Get randomized or fixed transform for this instance
                 const transform = getPlacementTransform();
                 
@@ -663,13 +663,12 @@ export const EnvironmentBuilder = forwardRef(({
 
                 const instanceId = instancedData.instances.size;
                 
+                // Update all meshes for this instance
                 instancedData.meshes.forEach(mesh => {
-                    mesh.count++;
-                    
                     if (instanceId >= mesh.instanceMatrix.count) {
                         expandInstancedMeshCapacity(modelUrl);
                     }
-
+                    mesh.count++;
                     mesh.setMatrixAt(instanceId, matrix);
                     mesh.instanceMatrix.needsUpdate = true;
                 });
@@ -681,9 +680,15 @@ export const EnvironmentBuilder = forwardRef(({
                     scale: transform.scale,
                     matrix
                 });
-            });
 
-            ///console.log("placed environment at", position.x, position.y, position.z);
+                return {
+                    modelUrl,
+                    instanceId,
+                    position,
+                    rotation: transform.rotation,
+                    scale: transform.scale
+                };
+            });
 
             // Save the new environment state
             const newEnvironmentState = Array.from(instancedMeshes.current.entries()).flatMap(([modelUrl, instancedData]) => {
@@ -709,13 +714,7 @@ export const EnvironmentBuilder = forwardRef(({
 
             setTotalEnvironmentObjects(newEnvironmentState.length);
 
-            return {
-                modelUrl: blockType.modelUrl,
-                instanceId: instancedMeshes.current.get(blockType.modelUrl)?.instances.size - 1,
-                position: mesh.position.clone(),
-                rotation: mesh.rotation.clone(),
-                scale: mesh.scale.clone()
-            };
+            return placedInstances[0]; // Return first instance for compatibility
         } catch (error) {
             console.error('Error in placeEnvironmentModel:', error);
             return null;

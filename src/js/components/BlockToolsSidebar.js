@@ -40,6 +40,17 @@ const BlockToolsSidebar = ({
   const [tempRotationValue, setTempRotationValue] = useState(rotationValue);
 
   useEffect(() => {
+    console.log('Updating placement settings:', {
+      randomSize,
+      randomRotation,
+      minSize,
+      maxSize,
+      minRotation,
+      maxRotation,
+      size: sizeValue,
+      rotation: rotationValue,
+    });
+    
     onPlacementSettingsChange?.({
       randomSize,
       randomRotation,

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import TerrainBuilder, { blockTypes, updateBlockTypes, getBlockTypes } from "./js/TerrainBuilder";
 import { environmentModels } from "./js/EnvironmentBuilder";
-import EnvironmentButton from "./js/components/EnvironmentButton";
 import EnvironmentBuilder from "./js/EnvironmentBuilder";
 import * as THREE from 'three';
 import {
@@ -35,6 +34,7 @@ import BlockButton from './js/components/BlockButton';
 import DebugInfo from './js/components/DebugInfo';
 import { DatabaseManager, STORES } from './js/DatabaseManager';
 import JSZip from 'jszip';
+import BlockToolsSidebar from './js/components/BlockToolsSidebar';
 
 
 /// change this to the version number of the map builder
@@ -1614,9 +1614,6 @@ function App() {
 
   return (
     <div className="App">
-
-      {/* Under Construction Screen, comment this out when the map is ready */}
-
       {/* Loading Screen */}
       {!pageIsLoaded && <LoadingScreen />}
 
@@ -1627,119 +1624,21 @@ function App() {
       </div>
 
       {/* Block Tools Section */}
+      <BlockToolsSidebar
+        activeTab={activeTab}
+        blockTypes={blockTypes}
+        currentBlockType={currentBlockType}
+        customBlocks={customBlocks}
+        handleTabChange={handleTabChange}
+        setCurrentBlockType={setCurrentBlockType}
+        handleDeleteCustomBlock={handleDeleteCustomBlock}
+        handleDragStart={handleDragStart}
+        handleEnvironmentSelect={handleEnvironmentSelect}
+        handleDeleteEnvironmentModel={handleDeleteEnvironmentModel}
+        environmentModels={environmentModels}
+        handleDrop={handleDrop}
+      />
 
-      <div className="block-tools-container">
-        <div className="block-tools-sidebar">
-          <div className="block-buttons-grid">
-              {activeTab === "blocks" 
-                ? (
-                  <>
-                    <div style={{width: '100%', borderBottom: '2px solid #ccc', fontSize: '12px', textAlign: 'left'}}>Default Blocks (ID: 1-99)</div>
-                    {blockTypes.map((blockType) => (
-                      <BlockButton
-                        key={blockType.id}
-                        blockType={blockType}
-                        isSelected={blockType.id === currentBlockType?.id}
-                        onSelect={(block) => {
-                          setCurrentBlockType(block);
-                          localStorage.setItem("selectedBlock", block.id);
-                        }}
-                        onDelete={handleDeleteCustomBlock}
-                        handleDragStart={handleDragStart}
-                      />
-                    ))}
-                    <div style={{width: '100%', borderBottom: '2px solid #ccc', fontSize: '12px', textAlign: 'left'}}>Custom Blocks (ID: 100-199)</div>
-                    {customBlocks.map((blockType) => (
-                      <BlockButton
-                        key={blockType.id}
-                        blockType={blockType}
-                        isSelected={blockType.id === currentBlockType?.id}
-                        onSelect={(block) => {
-                          setCurrentBlockType(block);
-                          localStorage.setItem("selectedBlock", block.id);
-                        }}
-                        onDelete={handleDeleteCustomBlock}
-                        handleDragStart={handleDragStart}
-                      />
-                    ))}
-                  </>
-                )
-                : 
-                <div className="environment-button-wrapper">
-                  <div style={{width: '100%', borderBottom: '2px solid #ccc', fontSize: '12px', textAlign: 'left'}}>Default Environment Objects (ID: 200-299)</div>
-                  {environmentModels
-                    .filter(envType => !envType.isCustom)
-                    .map((envType) => (
-                      <EnvironmentButton
-                        key={envType.id}
-                        envType={envType}
-                        isSelected={envType.id === currentBlockType?.id}
-                        onSelect={handleEnvironmentSelect}
-                        onDelete={handleDeleteEnvironmentModel}
-                      />
-                    ))}
-                    
-                  <div style={{width: '100%', borderBottom: '2px solid #ccc', fontSize: '12px', textAlign: 'left', marginTop: '10px'}}>
-                    Custom Environment Objects (ID: 300+)
-                  </div>
-                  {environmentModels
-                    .filter(envType => envType.isCustom)
-                    .map((envType) => (
-                      <EnvironmentButton
-                        key={envType.id}
-                        envType={envType}
-                        isSelected={envType.id === currentBlockType?.id}
-                        onSelect={handleEnvironmentSelect}
-                        onDelete={handleDeleteEnvironmentModel}
-                      />
-                    ))}
-                  </div>
-              }
-          </div>
-          <div className="tab-button-wrapper">
-            <button
-              className={`tab-button ${activeTab === "blocks" ? "active" : ""}`}
-              onClick={() => handleTabChange("blocks")}
-            >
-              Blocks
-            </button>
-            <button
-              className={`tab-button ${activeTab === "environment" ? "active" : ""}`}
-              onClick={() => handleTabChange("environment")}
-            >
-              Environment
-            </button>
-          </div>
-          <div
-            className="texture-drop-zone"
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.currentTarget.classList.add("drag-over");
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              e.currentTarget.classList.remove("drag-over");
-            }}
-            onDrop={handleDrop}
-          >
-            <div className="drop-zone-content">
-              <div className="drop-zone-icons">
-                <FaUpload className="upload-icon" />
-                {activeTab === "blocks" ? (
-                  <FaCube className="block-icon" />
-                ) : (
-                  <FaTree className="block-icon" />
-                )}
-              </div>
-              <div className="drop-zone-text">
-                {activeTab === "blocks" 
-                  ? "Drag textures here to add new blocks"
-                  : "Drag .gltf models here to add new environment objects"}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
       <Canvas shadows className="canvas-container">
         <TerrainBuilder
           terrain={terrain}
@@ -1772,6 +1671,7 @@ function App() {
             mode={mode}
             previewScale={previewScale}
             previewRotation={previewRotation}
+            placementSize={placementSize}
             onTotalObjectsChange={setTotalEnvironmentObjects}
           />
         )}

@@ -1,6 +1,6 @@
 /* Block Tools Container and Sidebar */
 .block-tools-container {
-  position: fixed;
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -8,8 +8,8 @@
   height: 100%;
   width: 400px;
   z-index: 100;
-  padding-bottom: 100px;
   min-height: 400px; /* Add minimum height to prevent too much compression */
+  pointer-events: none;
 }
 
 .block-tools-sidebar {
@@ -27,6 +27,9 @@
   min-height: 400px;
   max-height: 100vh; /* Ensure it doesn't overflow viewport */
   overflow: hidden; /* Prevent sidebar from scrolling */
+  margin-top: 140px;
+  margin-bottom: 140px;
+  pointer-events:all;
 }
 
 /* Block Buttons Grid */
@@ -157,6 +160,20 @@
   background: #bae0ff;
 }
 
+.object-preview {
+  width: 60px;
+  height: 60px;
+  border-radius: 5px;
+  margin-left: 2px;
+  background-color: rgba(255, 255, 255, 0.484);
+  overflow: hidden;
+}
+
+.object-preview canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Texture Drop Zone */
 .texture-drop-zone {
   position: relative;
@@ -207,11 +224,6 @@
 .texture-drop-zone.drag-over .upload-icon,
 .texture-drop-zone.drag-over .block-icon {
   color: #fff;
-}
-
-.dead-space {
-  width: 100%;
-  height: 140px !important;
 }
 
 .placement-tools {
@@ -370,5 +382,50 @@
   color: #000000;
   margin-right: 5px;
   margin-left: 5px;
+}
+
+.environment-label-wrapper {
+  position: relative;
+  height: 100%;
+  max-width: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  margin-left: 5px;
+}
+
+.environment-button-label {
+  position: relative;
+  width: 100%;
+  font-size: 12px;
+  text-align: center;
+  color: #2e2e2e;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+.environment-button-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  position: relative;
+}
+
+.environment-button-container:hover .delete-button {
+  z-index: 10;
+  opacity: 1;
+}
+
+.delete-button {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.delete-button:hover {
+  color: #ff0000;
 }
 
