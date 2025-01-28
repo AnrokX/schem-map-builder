@@ -1773,7 +1773,6 @@ function App() {
             previewScale={previewScale}
             previewRotation={previewRotation}
             onTotalObjectsChange={setTotalEnvironmentObjects}
-            placementSize={placementSize}  // Add this prop
           />
         )}
       </Canvas>

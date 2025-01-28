@@ -56,7 +56,17 @@ export const EnvironmentBuilder = forwardRef(({
   previewScale, 
   previewRotation,
   onTotalObjectsChange,
-  placementSize = 'single'
+  placementSize = 'single',
+  placementSettings = {
+    randomSize: false,
+    randomRotation: false,
+    minSize: 0.5,
+    maxSize: 1.5,
+    minRotation: 0,
+    maxRotation: 360,
+    size: 1.0,
+    rotation: 0,
+  }
 }, ref) => {
     // Convert class properties to refs and state
     const loader = useRef(new GLTFLoader());
@@ -535,6 +545,25 @@ export const EnvironmentBuilder = forwardRef(({
         updateLocalStorage();
     };
 
+    const getRandomValue = (min, max) => {
+        return Math.random() * (max - min) + min;
+    };
+
+    const getPlacementTransform = () => {
+        const scale = placementSettings.randomSize
+            ? getRandomValue(placementSettings.minSize, placementSettings.maxSize)
+            : placementSettings.size;
+        
+        const rotation = placementSettings.randomRotation
+            ? getRandomValue(placementSettings.minRotation, placementSettings.maxRotation)
+            : placementSettings.rotation;
+
+        return {
+            scale: new THREE.Vector3(scale, scale, scale),
+            rotation: new THREE.Euler(0, rotation * Math.PI / 180, 0)
+        };
+    };
+
     const placeEnvironmentModel = async (blockType = currentBlockType, mesh = placeholderMesh) => {
         try {
             // Get current state before any modifications
@@ -622,8 +651,15 @@ export const EnvironmentBuilder = forwardRef(({
 
             // Place instances at all positions
             positions.forEach((position) => {
+                // Get randomized or fixed transform for this instance
+                const transform = getPlacementTransform();
+                
                 const matrix = new THREE.Matrix4();
-                matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+                matrix.compose(
+                    position,
+                    new THREE.Quaternion().setFromEuler(transform.rotation),
+                    transform.scale
+                );
 
                 const instanceId = instancedData.instances.size;
                 
@@ -641,8 +677,8 @@ export const EnvironmentBuilder = forwardRef(({
                 // Store instance data
                 instancedData.instances.set(instanceId, {
                     position,
-                    rotation,
-                    scale,
+                    rotation: transform.rotation,
+                    scale: transform.scale,
                     matrix
                 });
             });
