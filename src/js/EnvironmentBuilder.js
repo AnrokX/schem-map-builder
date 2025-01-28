@@ -459,15 +459,24 @@ export const EnvironmentBuilder = forwardRef(({
     // New function that places without saving state
     const placeEnvironmentModelWithoutSaving = async (blockType, mesh) => {
         try {
-            if (!blockType || !mesh) return null;
+            if (!blockType || !mesh) {
+                console.warn(`blockType and mesh null`);
+                return null;
+            }
 
             const modelData = environmentModels.find(model => model.id === blockType.id);
-            if (!modelData) return null;
+            if (!modelData) {
+                console.warn(`Could not find model with ID ${blockType.id}`);
+                return null;
+            }
 
             const modelUrl = modelData.modelUrl;
             const instancedData = instancedMeshes.current.get(modelUrl);
             
-            if (!instancedData) return null;
+            if (!instancedData) {
+                console.warn(`Could not find instanced data for model ${modelData.modelUrl}`);
+                return null;
+            }
 
             const position = mesh.position.clone();
             const rotation = mesh.rotation.clone();
