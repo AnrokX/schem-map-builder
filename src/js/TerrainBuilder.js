@@ -3,7 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
-import { soundManager } from './Sound';
+import { playPlaceSound } from './Sound';
 import { cameraManager } from './Camera';
 import { DatabaseManager, STORES } from './DatabaseManager';
 import { UndoRedoManager } from './UndoRedo';
@@ -622,7 +622,7 @@ function TerrainBuilder({
   const handlePointerDown = async (event) => {
     if (event.button === 0) {
         setIsPlacing(true);
-        soundManager.playPlaceSound();
+        playPlaceSound();
         
         // Capture initial state when placement starts
         const currentEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];

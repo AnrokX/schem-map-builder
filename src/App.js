@@ -20,25 +20,21 @@ import {
   FaSquare,
   FaVolumeMute,
   FaMountain,
-  FaUpload,
   FaDatabase,
-  FaTree,
 } from "react-icons/fa";
 import Tooltip from "./js/components/Tooltip";
 import hytopiaLogo from "./images/Hytopia_Tiny.png";
 import "./css/App.css";
 import { generatePerlinNoise } from "perlin-noise";
 import { cameraManager } from "./js/Camera";
-import { soundManager } from "./js/Sound";
+import {toggleMute} from "./js/Sound";
 import DebugInfo from './js/components/DebugInfo';
 import { DatabaseManager, STORES } from './js/DatabaseManager';
 import JSZip from 'jszip';
 import BlockToolsSidebar from './js/components/BlockToolsSidebar';
 import { UndoRedoManager } from './js/UndoRedo';
+import { version } from './js/Constants';
 
-
-/// change this to the version number of the map builder
-const version = "1.3.1";
 
 function App() {
   const [terrain, setTerrainState] = useState({});
@@ -53,7 +49,6 @@ function App() {
   const [debugInfo, setDebugInfo] = useState({ mouse: {}, preview: {}, grid: {}});
   const [totalBlocks, setTotalBlocks] = useState(0);
   const [axisLockEnabled, setAxisLockEnabled] = useState(false);
-  const [redoStates, setRedoStates] = useState([]);
   const [gridSize, setGridSize] = useState(100);
   const [showGridSizeModal, setShowGridSizeModal] = useState(false);
   const [newGridSize, setNewGridSize] = useState(100);
@@ -67,17 +62,16 @@ function App() {
   const [cameraAngle, setCameraAngle] = useState(0);
   const [placementSize, setPlacementSize] = useState("single");
   const [isMuted, setIsMuted] = useState(false);
-  const [activeTab, setActiveTab] = useState("blocks"); // 'blocks' or 'environment'
+  const [activeTab, setActiveTab] = useState("blocks");
   const [showTerrainModal, setShowTerrainModal] = useState(false);
   const [terrainSettings, setTerrainSettings] = useState({
     width: 32,
     length: 32,
     height: 16,
-    scale: 1, // Fixed at 1% (lowest value)
-    roughness: 85, // Default value in middle of new range
-    clearMap: false, // Add this new setting
+    scale: 1,
+    roughness: 85,
+    clearMap: false,
   });
-  const [objectScale, setObjectScale] = useState(1);
   const [pageIsLoaded, setPageIsLoaded] = useState(false);
   const [currentDraggingBlock, setCurrentDraggingBlock] = useState(null);
   const handleDropRef = useRef(null);
@@ -86,38 +80,8 @@ function App() {
   const terrainRef = useRef(terrain);
   const environmentBuilder = useRef(null);
 
-  // Add new state for environment preview
-  const [previewScale, setPreviewScale] = useState(1);
-  const [previewRotation, setPreviewRotation] = useState(new THREE.Euler());
-
   const [scene, setScene] = useState(null);
   const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
-
-  /// BlockToolsSidebar props
-  const [fixedScale, setFixedScale] = useState(1);
-  const [fixedRotation, setFixedRotation] = useState({ x: 0, y: 0, z: 0 });
-  const [minScale, setMinScale] = useState(0.5);
-  const [maxScale, setMaxScale] = useState(1.5);
-
-  const [placementSettings, setPlacementSettings] = useState({
-    randomScale: false,
-    randomRotation: false,
-    minScale: 0.5,
-    maxScale: 1.5,
-    minRotation: 0,
-    maxRotation: 360,
-    scale: 1.0,
-    rotation: 0
-  });
-
-  useEffect(() => {
-    terrainRef.current = terrain;
-  }, [terrain]);
-
-  useEffect(() => {
-    const count = Object.keys(terrain).length;
-    setTotalBlocks(count);
-  }, [terrain]);
 
   useEffect(() => {
     const initializeStates = async () => {
@@ -198,8 +162,9 @@ function App() {
             if (Array.isArray(state.environment.added)) {
               newEnv.push(...state.environment.added);
             }
-
+            
             await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnv);
+            await environmentBuilder.current.loadSavedEnvironment();
           }
         }
 
@@ -401,7 +366,6 @@ function App() {
         if (importedData.blocks) {
           // Clear existing terrain first
           setTerrainState({});
-          setRedoStates([]);
           
           const importedTerrain = importedData.blocks;
           let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -550,7 +514,7 @@ function App() {
         if (settings.isMuted !== undefined) {
           setIsMuted(settings.isMuted);
           if (settings.isMuted) {
-            soundManager.mute();
+            toggleMute();
           }
         }
       } catch (error) {
@@ -658,8 +622,7 @@ function App() {
         // Clear terrain state
         setTerrainState({});
         setTotalBlocks(0);
-        setRedoStates([]);
-
+        
         // Clear environment objects
         if (environmentBuilder.current) {
           environmentBuilder.current.clearEnvironments();
@@ -698,74 +661,6 @@ function App() {
   const updateTerrainWithHistory = useCallback((newTerrain) => {
     setTerrainState(newTerrain);
   }, []);
-
-  // Replace the existing audio effects with this simplified version
-  useEffect(() => {
-    const handleFirstInteraction = () => {
-      if (!isMuted) {
-        // backgroundMusic.play().catch(err => console.log('Music playback error:', err));
-      }
-      // Remove event listeners after first interaction
-      document.removeEventListener("click", handleFirstInteraction);
-      document.removeEventListener("keydown", handleFirstInteraction);
-    };
-
-    document.addEventListener("click", handleFirstInteraction);
-    document.addEventListener("keydown", handleFirstInteraction);
-
-    return () => {
-      // backgroundMusic.pause();
-      document.removeEventListener("click", handleFirstInteraction);
-      document.removeEventListener("keydown", handleFirstInteraction);
-    };
-  }, [isMuted]);
-
-  // Simplify the click handler
-  useEffect(() => {
-    let clickTimeout;
-
-    const handleClick = (event) => {
-      if (event.target.closest("button") && !isMuted) {
-        // Clear any existing timeout
-        if (clickTimeout) {
-          clearTimeout(clickTimeout);
-        }
-
-        // Reset and play sound
-        soundManager.playUIClick();
-
-        // Set a timeout to prevent rapid-fire sound playing
-        clickTimeout = setTimeout(() => {
-          clickTimeout = null;
-        }, 50);
-      }
-    };
-
-    document.addEventListener("click", handleClick);
-    return () => {
-      document.removeEventListener("click", handleClick);
-      if (clickTimeout) {
-        clearTimeout(clickTimeout);
-      }
-    };
-  }, [isMuted]);
-
-  // Add effects to save changes to localStorage
-  useEffect(() => {
-    localStorage.setItem("selectedBlock", currentBlockType.id);
-  }, [currentBlockType]);
-
-  useEffect(() => {
-    localStorage.setItem("gridSize", gridSize);
-  }, [gridSize]);
-
-  useEffect(() => {
-    localStorage.setItem("isMuted", isMuted);
-  }, [isMuted]);
-
-  useEffect(() => {
-    localStorage.setItem("cameraAngle", cameraAngle);
-  }, [cameraAngle]);
 
   const generateTerrain = async () => {
     const { width, length, height, scale, roughness, clearMap } = terrainSettings;
@@ -828,243 +723,34 @@ function App() {
     cameraManager.setAngleChangeCallback(handleCameraAngleChange);
   }, [handleCameraAngleChange]);
 
-  const handleMuteToggle = async () => {
-    const newMuteState = !isMuted;
-    setIsMuted(newMuteState);
-    if (newMuteState) {
-      soundManager.mute();
-    } else {
-      soundManager.unmute();
-    }
-    
-    try {
-      const settings = await DatabaseManager.getData(STORES.SETTINGS, 'userPreferences') || {};
-      await DatabaseManager.saveData(STORES.SETTINGS, 'userPreferences', {
-        ...settings,
-        isMuted: newMuteState
-      });
-    } catch (error) {
-      console.error('Error saving mute state to DB:', error);
-    }
-  };
-
-  // Add this function to handle drag start
-  const handleDragStart = (blockId) => {
-    console.log("Drag started with block:", blockId);
-    setCurrentDraggingBlock(blockId);
-  };
-
-  // Update handleDrop to update blockTypes
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove("drag-over");
-
-    const files = Array.from(e.dataTransfer.files);
-    
-    if (activeTab === "blocks") {
-        // Handle image files for blocks
-        const imageFiles = files.filter((file) =>
-            file.type.startsWith("image/")
-        );
-
-        if (imageFiles.length > 0) {
-            imageFiles.forEach((file) => {
-                const reader = new FileReader();
-                reader.onload = async () => {
-                    const fileName = file.name.replace(/\.[^/.]+$/, "");
-                    
-                    // Check if a block with this name already exists
-                    const existingBlockIndex = customBlocks.findIndex(block => block.name === fileName);
-                    
-                    if (existingBlockIndex !== -1) {
-                        // Update existing block with new texture
-                        const updatedBlocks = [...customBlocks];
-                        updatedBlocks[existingBlockIndex] = {
-                            ...updatedBlocks[existingBlockIndex],
-                            textureUri: reader.result  // Store base64 data
-                        };
-                        setCustomBlocks(updatedBlocks);
-                        updateBlockTypes(updatedBlocks);
-                        
-                        try {
-                            await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-                            console.log(`Updated texture for existing block: ${fileName}`);
-                            alert(`Updated texture for existing block: ${fileName}\n\n Please refresh the page to see the changes.`);
-                        } catch (error) {
-                            console.error('Error updating custom block:', error);
-                        }
-                    } else {
-                        // Find the highest existing custom block ID
-                        const maxId = Math.max(
-                            ...customBlocks.map(block => block.id),
-                            99
-                        );
-                        
-                        // Create new block
-                        const newBlockType = {
-                            id: maxId + 1,
-                            name: fileName,
-                            textureUri: reader.result,  // Store base64 data
-                            isCustom: true,
-                        };
-                        
-                        const updatedBlocks = [...customBlocks, newBlockType];
-                        setCustomBlocks(updatedBlocks);
-                        updateBlockTypes(updatedBlocks);
-                        
-                        try {
-                            await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-                        } catch (error) {
-                            console.error('Error saving custom blocks:', error);
-                        }
-                    }
-                };
-                reader.readAsDataURL(file);  // Read as base64 data URL
-            });
-        }
-    } else if (activeTab === "environment") {
-        const gltfFiles = files.filter((file) =>
-            file.name.endsWith('.gltf')
-        );
-
-        if (gltfFiles.length > 0) {
-            gltfFiles.reduce((promise, file) => {
-                return promise.then(() => {
-                    return new Promise((resolve) => {
-                        const fileName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
-                        
-                        // Check if model with this name already exists
-                        const modelExists = environmentModels.some(model => 
-                            model.name.toLowerCase() === fileName.toLowerCase()
-                        );
-
-                        if (modelExists) {
-                            alert(`A model named "${fileName}" already exists. Please rename the file and try again.`);
-                            resolve();
-                            return;
-                        }
-
-                        // Rest of the existing model loading code
-                        const reader = new FileReader();
-                        reader.onload = async () => {
-                            try {
-                                // Get existing custom models
-                                const existingModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models') || [];
-                                
-                                // Create the model data
-                                const modelData = {
-                                    name: fileName,
-                                    data: reader.result,
-                                    timestamp: Date.now()
-                                };
-
-                                // Add to existing models
-                                const updatedModels = [...existingModels, modelData];
-
-                                // Save to IndexedDB
-                                await DatabaseManager.saveData(STORES.CUSTOM_MODELS, 'models', updatedModels);
-
-                                // Create a temporary URL for immediate use
-                                const blob = new Blob([reader.result], { type: 'model/gltf+json' });
-                                const fileUrl = URL.createObjectURL(blob);
-                                
-                                // Create new environment model
-                                const newEnvironmentModel = {
-                                    id: Math.max(
-                                        ...environmentModels.filter(model => model.isCustom).map(model => model.id),
-                                        199
-                                    ) + 1,
-                                    name: fileName,
-                                    modelUrl: fileUrl,
-                                    isEnvironment: true,
-                                    isCustom: true,
-                                    animations: ['idle']
-                                };
-                                
-                                // Add to environment models array
-                                environmentModels.push(newEnvironmentModel);
-                                
-                                // Preload the new model
-                                if (environmentBuilder.current) {
-                                    await environmentBuilder.current.loadCustomModel(newEnvironmentModel);
-                                    console.log(`Successfully loaded custom model: ${fileName}`);
-                                }
-                            } catch (error) {
-                                console.error(`Error processing model ${fileName}:`, error);
-                            }
-                            resolve();
-                        };
-                        reader.readAsArrayBuffer(file);
-                    });
-                });
-            }, Promise.resolve());
-        }
-    }
-  };
-
-  const handleDeleteCustomBlock = async (blockType) => {
-    const confirmMessage = `Deleting "${blockType.name}" will remove any block of this type from the scene and CANNOT BE UNDONE! Are you sure you want to proceed?`;
-    
-    if (window.confirm(confirmMessage)) {
-      const updatedBlocks = customBlocks.filter(b => b.id !== blockType.id);
-      setCustomBlocks(updatedBlocks);
-      
-      // Save updated blocks to IndexedDB
-      try {
-        await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-        
-        // Update terrain to remove deleted block instances
-        const currentTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
-        const newTerrain = Object.fromEntries(
-          Object.entries(currentTerrain).filter(([_, block]) => block.id !== blockType.id)
-        );
-        await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
-        updateTerrainWithHistory(newTerrain);
-      } catch (error) {
-        console.error('Error updating database after block deletion:', error);
-      }
-    }
-  };
-
-  // Handler for environment button clicks
-  const handleEnvironmentSelect = (envType) => {
-    // Set the current block type to the environment model
-    setCurrentBlockType({
-        ...envType,
-        isEnvironment: true
-    });
-    
-    // Set mode to 'add'
-    setMode('add');
-  };
-
-  // Update the tab switching logic
-  const handleTabChange = (newTab) => {
-    // Remove any existing environment preview when switching tabs
-    if (environmentBuilder.current) {
-        environmentBuilder.current.removePreview();
-    }
-    
-    // Reset current block type to default block when switching to blocks tab
-    if (newTab === "blocks") {
-        setCurrentBlockType(blockTypes[0]);
-    }
-    
-    setActiveTab(newTab);
-  };
-
-  // Add this function to clear the database
   const clearDatabase = async () => {
-    if (window.confirm('Are you sure you want to clear all saved data? This cannot be undone.')) {
-        try {
-            await DatabaseManager.deleteData(STORES.TERRAIN, 'current');
-            await DatabaseManager.deleteData(STORES.ENVIRONMENT, 'current');
-            await DatabaseManager.deleteData(STORES.CUSTOM_BLOCKS, 'blocks');
-            await DatabaseManager.deleteData(STORES.CUSTOM_MODELS, 'models');
-            window.location.reload();
-        } catch (error) {
-            console.error('Error clearing database:', error);
+    if (window.confirm('Are you sure you want to clear all saved data? This will remove all blocks, environments, custom blocks, and settings. This action cannot be undone.')) {
+      try {
+        setPageIsLoaded(false);
+
+        // Clear all stores sequentially to avoid transaction conflicts
+        const storesToClear = Object.values(STORES);
+        for (const store of storesToClear) {
+          try {
+            await DatabaseManager.clearStore(store);
+          } catch (error) {
+            console.warn(`Failed to clear store ${store}:`, error);
+          }
         }
+
+        // Reset local state
+        setTerrainState({});
+        setTotalBlocks(0);
+        setCustomBlocks([]);
+        setTotalEnvironmentObjects(0);
+
+        alert('Database cleared successfully. The page will now reload.');
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing database:', error);
+        alert('There was an error clearing the database. Please try again.');
+        setPageIsLoaded(true);
+      }
     }
   };
 
@@ -1266,7 +952,6 @@ function App() {
 
       // Clear existing terrain and environment
       setTerrainState({});
-      setRedoStates([]);
       
       if (environmentBuilder.current) {
         environmentBuilder.current.clearEnvironments();
@@ -1364,56 +1049,6 @@ function App() {
       console.error("Error importing asset pack:", error);
       alert("Error importing asset pack. Please make sure it's a valid Hytopia asset pack.");
       event.target.value = '';
-    }
-  };
-
-  // Add this function near your other handlers
-  const handleDeleteEnvironmentModel = async (modelId) => {
-    if (window.confirm('Are you sure you want to delete this custom model?')) {
-        try {
-            // Get existing models from DB
-            const existingModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models') || [];
-            
-            // Find the model to delete
-            const modelToDelete = environmentModels.find(model => model.id === modelId);
-            if (!modelToDelete) {
-                console.warn('Model not found:', modelId);
-                return;
-            }
-
-            console.log('Deleting model:', modelToDelete);
-
-            // Remove from environmentModels array
-            const modelIndex = environmentModels.findIndex(model => model.id === modelId);
-            if (modelIndex !== -1) {
-                environmentModels.splice(modelIndex, 1);
-            }
-
-            // Remove from DB
-            const updatedModels = existingModels.filter(model => model.name !== modelToDelete.name);
-            await DatabaseManager.saveData(STORES.CUSTOM_MODELS, 'models', updatedModels);
-
-            // Get current environment data
-            const currentEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-            console.log('Current environment before filter:', currentEnvironment);
-            
-            // Filter out only instances of the deleted model
-            const updatedEnvironment = currentEnvironment.filter(obj => {
-                const shouldKeep = obj.name !== modelToDelete.name;
-                return shouldKeep;
-            });
-
-            console.log('Updated environment after filter:', updatedEnvironment);
-
-            // Save the filtered environment data
-            await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', updatedEnvironment);
-
-            await environmentBuilder.current.loadSavedEnvironment();
-
-            console.log(`Successfully deleted model ${modelToDelete.name} and its instances`);
-        } catch (error) {
-            console.error('Error deleting environment model:', error);
-        }
     }
   };
 
@@ -1747,26 +1382,16 @@ function App() {
         <p style={{ marginTop: '50px', fontSize: '12px', color: 'gray'}}>World Editor Version {version}</p>
       </div>
 
-      {/* Block Tools Section */}
       <BlockToolsSidebar
-        // Core functionality
         activeTab={activeTab}
         blockTypes={blockTypes}
         currentBlockType={currentBlockType}
         customBlocks={customBlocks}
-        environmentModels={environmentModels}
-        
-        // Event handlers
-        handleTabChange={handleTabChange}
+        setCustomBlocks={setCustomBlocks}
         setCurrentBlockType={setCurrentBlockType}
-        handleDeleteCustomBlock={handleDeleteCustomBlock}
-        handleDragStart={handleDragStart}
-        handleEnvironmentSelect={handleEnvironmentSelect}
-        handleDeleteEnvironmentModel={handleDeleteEnvironmentModel}
-        handleDrop={handleDrop}
-        
-        // Placement settings
-        onPlacementSettingsChange={setPlacementSettings}
+        environmentBuilder={environmentBuilder}
+        updateTerrainWithHistory={updateTerrainWithHistory}
+        setActiveTab={setActiveTab}
       />
 
       <Canvas shadows className="canvas-container">
@@ -1799,7 +1424,6 @@ function App() {
             mode={mode}
             onTotalObjectsChange={setTotalEnvironmentObjects}
             placementSize={placementSize}
-            placementSettings={placementSettings}
           />
         )}
       </Canvas>
@@ -2303,7 +1927,7 @@ function App() {
         </Tooltip>
         <Tooltip text={isMuted ? "Unmute" : "Mute"}>
           <button
-            onClick={handleMuteToggle}
+            onClick={toggleMute}
             className={`camera-control-button ${!isMuted ? "active" : ""}`}
           >
             <FaVolumeMute />

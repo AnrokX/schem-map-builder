@@ -1,7 +1,9 @@
+import { version } from './Constants';
+
 export const STORES = {
   TERRAIN: 'terrain',
   ENVIRONMENT: 'environment',
-  PREVIEWS: 'environment-previews',
+  PREVIEWS: 'environment-icons',
   SETTINGS: 'settings',
   CUSTOM_BLOCKS: 'custom-blocks',
   CUSTOM_MODELS: 'custom-models',
@@ -10,8 +12,8 @@ export const STORES = {
 };
 
 export class DatabaseManager {
-  static DB_NAME = 'terrain-builder';
-  static DB_VERSION = 10;  // Incremented version number
+  static DB_NAME = 'hytopia-world-editor-' + version;
+  static DB_VERSION = 1;  // Incremented version number
   static dbConnection = null;  // Add static property to store connection
 
   static async openDB() {
@@ -21,80 +23,23 @@ export class DatabaseManager {
     }
 
     return new Promise((resolve, reject) => {
-      // First, check if we need to delete the old database
-      const checkRequest = indexedDB.open(this.DB_NAME);
-      
-      checkRequest.onsuccess = () => {
-        const oldVersion = checkRequest.result.version;
-        checkRequest.result.close();
-        
-        if (oldVersion < this.DB_VERSION) {
-          // Delete the old database if it's an older version
-          const deleteRequest = indexedDB.deleteDatabase(this.DB_NAME);
-          
-          deleteRequest.onsuccess = () => {
-            // Now open with the new version
-            this.openNewDB().then(db => {
-              this.dbConnection = db;  // Store the connection
-              resolve(db);
-            }).catch(reject);
-          };
-          
-          deleteRequest.onerror = () => {
-            console.error('Error deleting old database');
-            reject(deleteRequest.error);
-          };
-        } else {
-          // If version is current, just open normally
-          this.openNewDB().then(db => {
-            this.dbConnection = db;  // Store the connection
-            resolve(db);
-          }).catch(reject);
-        }
-      };
-      
-      checkRequest.onerror = () => {
-        console.error('Error checking database version');
-        reject(checkRequest.error);
-      };
-    });
-  }
-
-  static async openNewDB() {
-    return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        this.dbConnection = request.result;
+        resolve(request.result);
+      };
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
-
-        // Create stores if they don't exist
-        if (!db.objectStoreNames.contains(STORES.TERRAIN)) {
-          db.createObjectStore(STORES.TERRAIN);
-        }
-        if (!db.objectStoreNames.contains(STORES.ENVIRONMENT)) {
-          db.createObjectStore(STORES.ENVIRONMENT);
-        }
-        if (!db.objectStoreNames.contains(STORES.PREVIEWS)) {
-          db.createObjectStore(STORES.PREVIEWS);
-        }
-        if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
-          db.createObjectStore(STORES.SETTINGS);
-        }
-        if (!db.objectStoreNames.contains(STORES.CUSTOM_BLOCKS)) {
-          db.createObjectStore(STORES.CUSTOM_BLOCKS);
-        }
-        if (!db.objectStoreNames.contains(STORES.CUSTOM_MODELS)) {
-          db.createObjectStore(STORES.CUSTOM_MODELS);
-        }
-        if (!db.objectStoreNames.contains(STORES.UNDO)) {
-          db.createObjectStore(STORES.UNDO);
-        }
-        if (!db.objectStoreNames.contains(STORES.REDO)) {
-          db.createObjectStore(STORES.REDO);
-        }
+        
+        // Create all stores if they don't exist
+        Object.values(STORES).forEach(storeName => {
+          if (!db.objectStoreNames.contains(storeName)) {
+            db.createObjectStore(storeName);
+          }
+        });
       };
     });
   }
@@ -133,5 +78,28 @@ export class DatabaseManager {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
+  }
+
+  static async clearStore(storeName) {
+    try {
+      const db = await this.openDB();
+      
+      // Check if store exists
+      if (!db.objectStoreNames.contains(storeName)) {
+        console.log(`Store ${storeName} does not exist, skipping clear`);
+        return;
+      }
+
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.clear();
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve();
+      });
+    } catch (error) {
+      console.warn(`Error clearing store ${storeName}:`, error);
+    }
   }
 }

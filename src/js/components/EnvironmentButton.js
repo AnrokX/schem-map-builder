@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import Tooltip from './Tooltip';
-import { soundManager } from '../Sound';
+import { playUIClick } from '../Sound';
 import { Canvas } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from 'three';
@@ -191,15 +191,15 @@ const EnvironmentButton = ({ envType, isSelected, onSelect, onDelete }) => {
         className={`block-button environment-button ${isSelected ? 'selected' : ''}`} 
         onClick={() => {
           onSelect(envType);
-          soundManager.playUIClick();
+          playUIClick();
         }}
       >
         {envType.isCustom && (
           <div
-            className="delete-custom-block"
+            className="delete-button"
             onClick={(e) => {
               e.stopPropagation();
-              soundManager.playUIClick();
+              playUIClick();
               onDelete(envType.id);
             }}
           >

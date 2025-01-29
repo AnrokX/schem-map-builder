@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { FaTrash } from 'react-icons/fa';
 import Tooltip from './Tooltip';
-import { soundManager } from '../Sound';
+import { playUIClick } from '../Sound';
 
 const BlockButton = ({ 
   blockType, 
@@ -46,17 +46,17 @@ const BlockButton = ({
             return;
           }
           onSelect(blockType);
-          soundManager.playUIClick();
+          playUIClick();
         }}
         draggable={true}
         onDragStart={() => handleDragStart(blockType.id)}
       >
         {blockType.isCustom && (
           <div
-            className="delete-custom-block"
+            className="delete-button"
             onClick={(e) => {
               e.stopPropagation();
-              soundManager.playUIClick();
+              playUIClick();
               onDelete(blockType);
             }}
           >
