@@ -1,15 +1,12 @@
 import React from 'react';
 
-const DebugInfo = ({ debugInfo, totalBlocks, totalEnvironmentObjects }) => {
+const DebugInfo = ({ debugInfo, totalEnvironmentObjects }) => {
   return (
     <div className="debug-info">
       <p>
-        Mouse: x:{debugInfo.mouse.x}, y:{debugInfo.mouse.y}, z:{debugInfo.mouse.z}
+        Preview: x:{debugInfo?.preview?.x || 0}, y:{debugInfo?.preview?.y || 0}, z:{debugInfo?.preview?.z || 0}
       </p>
-      <p>
-        Preview: x:{debugInfo.preview.x}, y:{debugInfo.preview.y}, z:{debugInfo.preview.z}
-      </p>
-      <p>Total Blocks: {totalBlocks}</p>
+      <p>Total Blocks: {debugInfo?.totalBlocks || 0}</p>
       <p>Total Env. Objects: {totalEnvironmentObjects}</p>
     </div>
   );

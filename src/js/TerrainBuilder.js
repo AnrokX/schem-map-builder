@@ -73,51 +73,46 @@ export const blockTypes = blockTypesArray;
 
 // 3. Main Component Definition
 function TerrainBuilder({ 
-  terrain, 
-  onTerrainUpdate, 
+  setAppJSTerrainState, 
   currentBlockType, 
   mode, 
   setDebugInfo, 
-  setTotalBlocks, 
   axisLockEnabled, 
   gridSize, 
   cameraReset, 
   cameraAngle, 
   placementSize, 
   setPageIsLoaded, 
-  currentDraggingBlock, 
-  onHandleDropRef,
   customBlocks,
-  onSceneReady,
-  environmentBuilder,
-  totalEnvironmentObjects,
-  setUndoStates,
-  setRedoStates
+  environmentBuilderRef,
 }) {
+  // Internal terrain state
+  const [terrain, setTerrain] = useState({});
+
   // State declarations
   const [isPlacing, setIsPlacing] = useState(false);
   const [previewPosition, setPreviewPosition] = useState(null);
   const [lockedY, setLockedY] = useState(null);
   const [lockedAxis, setLockedAxis] = useState(null);
   const [blockCounts, setBlockCounts] = useState({});
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [raycastPoint, setRaycastPoint] = useState(null);
+  const [meshesInitialized, setMeshesInitialized] = useState(false);
+  const [totalBlocks, setTotalBlocks] = useState(0);
 
   // Ref declarations
-  const instancedMeshRefs = useRef({});
+  const instancedMeshRef = useRef({});
   const isFirstBlock = useRef(true);
   const lastPreviewPosition = useRef(new THREE.Vector3());
   const lastMousePlacementPositionRef = useRef(new THREE.Vector2());
   const placementStartPosition = useRef(null);
   const orbitControlsRef = useRef();
   const gridRef = useRef();
+  const shadowPlaneRef = useRef();
   const directionalLightRef = useRef();
   const axisLockEnabledRef = useRef(axisLockEnabled);
 
   // Constants
   const MOUSE_MOVE_THRESHOLD = 10;
   const AXIS_LOCK_THRESHOLD = 0.5;
-  const gridPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   // Scene setup
   const { camera, scene, raycaster, mouse, gl } = useThree();
@@ -125,144 +120,23 @@ function TerrainBuilder({
   // Add state to track initial terrain state during placement
   const placementStartState = useRef(null);
 
-  // 4. Core Initialization & Cleanup Effects
+  //* INITIALIZATION FUNCTIONS *//
+  //* INITIALIZATION FUNCTIONS *//
+  //* INITIALIZATION FUNCTIONS *//
+  //* INITIALIZATION FUNCTIONS *//
+
+  /// Mouse move update preview position
+  // No arguments means it only loads when the page is loaded
+  // and unloads when the page is unloaded
   useEffect(() => {
-    const initializeTerrain = async () => {
-      // Initialize only block types, environment models are handled by EnvironmentBuilder
-      for (const type of blockTypes) {
-        let geometry, material;
-        geometry = await createBlockGeometry(type);
-        material = await createBlockMaterial(type);
-        
-        instancedMeshRefs.current[type.id] = new THREE.InstancedMesh(
-          geometry,
-          material,
-          1
-        );
-        
-        // Disable frustum culling
-        instancedMeshRefs.current[type.id].frustumCulled = false;
-        
-        // Set rendering order to ensure proper depth sorting
-        instancedMeshRefs.current[type.id].renderOrder = 1;
-        
-        instancedMeshRefs.current[type.id].userData.blockTypeId = type.id;
-        instancedMeshRefs.current[type.id].count = 0;
-        scene.add(instancedMeshRefs.current[type.id]);
-      }
-
-      // Initialize camera manager with camera and controls
-      cameraManager.initialize(camera, orbitControlsRef.current);
-
-      const loader = new THREE.CubeTextureLoader();
-      loader.setPath('./assets/skyboxes/partly-cloudy/');
-      const textureCube = loader.load([
-        '+x.png', '-x.png',
-        '+y.png', '-y.png',
-        '+z.png', '-z.png'
-      ]);
-      scene.background = textureCube;
-      setIsInitialized(true);
+    const handleMouseMove = () => {
+      updatePreviewPosition();
     };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
-    initializeTerrain();
-
-    // Capture the current refs at the time the effect runs
-    const currentMeshRefs = { ...instancedMeshRefs.current };
-
-    return () => {
-      Object.values(currentMeshRefs).forEach(mesh => {
-        if (mesh) {
-          scene.remove(mesh);
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => m?.dispose());
-          } else if (mesh.material) {
-            mesh.material.dispose();
-          }
-        }
-      });
-    };
-  }, [camera, scene]);
-
-  useEffect(() => {
-    if (isInitialized) {
-      try {
-        const loadTerrain = async () => {
-          const savedTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current');
-          
-          if (savedTerrain) {
-            onTerrainUpdate(savedTerrain);
-            console.log('Terrain loaded from IndexedDB');
-          } else {
-            onTerrainUpdate({});
-          }
-          setPageIsLoaded(true);
-        };
-
-        loadTerrain();
-      } catch (error) {
-        console.error('Error loading saved terrain:', error);
-        onTerrainUpdate({});
-        setPageIsLoaded(true);
-      }
-    }
-  }, [isInitialized, onTerrainUpdate, setPageIsLoaded]);
-
-  useEffect(() => {
-    const newBlockCounts = {};
-    const matrix = new THREE.Matrix4();
-
-    // Reset all mesh counts
-    Object.values(instancedMeshRefs.current).forEach(mesh => {
-      mesh.count = 0;
-    });
-
-    // Process terrain entries
-    Object.entries(terrain).forEach(([key, value]) => {
-      const [x, y, z] = key.split(',').map(Number);
-      // Skip environment objects - they're handled by EnvironmentBuilder
-      if (value.id >= 1000) {
-        return;
-      }
-
-      const instancedMesh = instancedMeshRefs.current[value.id];
-      
-      if (instancedMesh) {
-        const index = newBlockCounts[value.id] || 0;
-        
-        if (index >= instancedMesh.instanceMatrix.count) {
-          const newInstanceCount = Math.ceil(instancedMesh.instanceMatrix.count * 1.5) + 1;
-          const newInstancedMesh = new THREE.InstancedMesh(
-            instancedMesh.geometry,
-            instancedMesh.material,
-            Math.max(newInstanceCount, 10)
-          );
-          newInstancedMesh.count = instancedMesh.count;
-          newInstancedMesh.instanceMatrix.set(instancedMesh.instanceMatrix.array);
-          scene.remove(instancedMesh);
-          scene.add(newInstancedMesh);
-          instancedMeshRefs.current[value.id] = newInstancedMesh;
-        }
-        
-        matrix.identity();
-        matrix.setPosition(x, y, z);
-        instancedMeshRefs.current[value.id].setMatrixAt(index, matrix);
-        newBlockCounts[value.id] = index + 1;
-      }
-    });
-
-    Object.entries(newBlockCounts).forEach(([id, count]) => {
-      const instancedMesh = instancedMeshRefs.current[id];
-      instancedMesh.count = count;
-      instancedMesh.instanceMatrix.needsUpdate = true;
-    });
-
-    // Update block counts, excluding environment objects
-    setBlockCounts(newBlockCounts);
-  }, [terrain, scene]);
-
-  // 5. Camera & Control Effects
+  // Define camera reset effects and axis lock effects
   useEffect(() => {
     if (cameraReset) {
       cameraManager.resetCamera();
@@ -277,76 +151,250 @@ function TerrainBuilder({
     axisLockEnabledRef.current = axisLockEnabled;
   }, [axisLockEnabled]);
 
-  // 7. Core Geometry & Material Functions
+  // effect to update grid size
+  useEffect(() => {
+    updateGridSize();
+  }, [gridRef, gridSize]);
+
+  // Update debug info when mouse
+  useEffect(() => {
+    setDebugInfo({
+      preview: previewPosition,
+      lockedAxis: axisLockEnabled ? lockedAxis : 'None',
+      totalBlocks: totalBlocks,
+    });
+    console.log('totalBlocks', totalBlocks);
+  }, [axisLockEnabled, lockedAxis, totalBlocks, previewPosition]);
+
+  // Initialize instanced meshes (pre-pageIsLoaded)
+  useEffect(() => {
+    let mounted = true;  // Track if component is mounted
+    
+    function initialize() {
+      try {
+        // Initialize camera manager with camera and controls
+        cameraManager.initialize(camera, orbitControlsRef.current);
+
+        // Load skybox
+        const loader = new THREE.CubeTextureLoader();
+        loader.setPath('./assets/skyboxes/partly-cloudy/');
+        const textureCube = loader.load([
+          '+x.png', '-x.png',
+          '+y.png', '-y.png',
+          '+z.png', '-z.png'
+        ]);
+        scene.background = textureCube;
+
+        // Initialize meshes
+        // Initialize only block types, environment models are handled by EnvironmentBuilder
+        for (const type of blockTypes) {
+          let geometry = createBlockGeometry(type);
+          let material = createBlockMaterial(type);
+          
+          instancedMeshRef.current[type.id] = new THREE.InstancedMesh(
+            geometry,
+            material,
+            1
+          );
+          
+          // Disable frustum culling
+          instancedMeshRef.current[type.id].frustumCulled = false;
+          
+          // Set rendering order to ensure proper depth sorting
+          instancedMeshRef.current[type.id].renderOrder = 1;
+          
+          instancedMeshRef.current[type.id].userData.blockTypeId = type.id;
+          instancedMeshRef.current[type.id].count = 0;
+          scene.add(instancedMeshRef.current[type.id]);
+        }
+
+        if (!mounted) return;  // Exit if unmounted
+
+        // Set meshesInitialized to true
+        setMeshesInitialized(true);
+
+        // Load terrain from IndexedDB
+        DatabaseManager.getData(STORES.TERRAIN, 'current').then(savedTerrain => {
+          if (!mounted) return;
+          
+          if (savedTerrain) {
+            setTerrain(savedTerrain);
+            console.log('Terrain loaded from IndexedDB');
+          } else {
+            console.log('No terrain found in IndexedDB');
+          }
+          
+          setPageIsLoaded(true);
+        }).catch(error => {
+          console.error('Error loading terrain:', error);
+          if (mounted) {
+            setPageIsLoaded(true);
+          }
+        });
+
+      } catch (error) {
+        console.error('Error during initialization:', error);
+        if (mounted) {
+          setPageIsLoaded(true);
+        }
+      }
+    }
+
+    initialize();
+
+    // Cleanup old meshes
+    return () => {
+      mounted = false;  // Prevent state updates after unmount
+      Object.values(instancedMeshRef.current).forEach(mesh => {
+        if (mesh) {
+          scene.remove(mesh);
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(m => m?.dispose());
+          } else if (mesh.material) {
+            mesh.material.dispose();
+          }
+        }
+      });
+    };
+  }, [camera, scene, gridSize]);
+
+
+  //* TERRAIN UPDATE FUNCTIONS *//
+  //* TERRAIN UPDATE FUNCTIONS *//
+  //* TERRAIN UPDATE FUNCTIONS *//
+  //* TERRAIN UPDATE FUNCTIONS *//
+
+  // Update visual representation of terrain blocks using instanced meshes
+  useEffect(() => {
+    buildUpdateTerrain();
+  }, [terrain]);
+
+  /// define buildUpdateTerrain to update the terrain
+  const buildUpdateTerrain = () => {
+    const blockCountsByType = {};
+    const transformMatrix = new THREE.Matrix4();
+
+    // Reset instance counts for all mesh types
+    Object.values(instancedMeshRef.current).forEach(instancedMesh => {
+      instancedMesh.count = 0;
+    });
+
+    // Process each block in the terrain
+    Object.entries(terrain).forEach(([position, block]) => {
+      const [x, y, z] = position.split(',').map(Number);
+      
+      // Skip environment objects - they're handled by EnvironmentBuilder
+      if (block.isEnvironment) return;
+
+      // Get the block mesh
+      const blockMesh = instancedMeshRef.current[block.id];
+      
+      // If the block mesh exists, update it
+      if (blockMesh) {
+        const instanceIndex = blockCountsByType[block.id] || 0;
+        
+        // Resize instance buffer if needed
+        if (instanceIndex >= blockMesh.instanceMatrix.count) {
+          const expandedSize = Math.ceil(blockMesh.instanceMatrix.count * 1.5) + 1;
+          const resizedMesh = new THREE.InstancedMesh(
+            blockMesh.geometry,
+            blockMesh.material,
+            Math.max(expandedSize, 10)
+          );
+          resizedMesh.count = blockMesh.count;
+          resizedMesh.instanceMatrix.set(blockMesh.instanceMatrix.array);
+          
+          scene.remove(blockMesh);
+          scene.add(resizedMesh);
+          instancedMeshRef.current[block.id] = resizedMesh;
+        }
+        
+        // Set block position in world space
+        transformMatrix.identity();
+        transformMatrix.setPosition(x, y, z);
+        instancedMeshRef.current[block.id].setMatrixAt(instanceIndex, transformMatrix);
+        blockCountsByType[block.id] = instanceIndex + 1;
+      }
+    });
+
+    // Update instance counts and trigger matrix updates
+    Object.entries(blockCountsByType).forEach(([blockId, instanceCount]) => {
+      const blockMesh = instancedMeshRef.current[blockId];
+      blockMesh.count = instanceCount;
+      blockMesh.instanceMatrix.needsUpdate = true;
+    });
+
+    // Update UI block counts
+    setBlockCounts(blockCountsByType);
+    setAppJSTerrainState(terrain);
+  }
+
+  /// Geometry and Material Helper Functions ///
+  /// Geometry and Material Helper Functions ///
+  /// Geometry and Material Helper Functions ///
+  /// Geometry and Material Helper Functions ///
+
   const createBlockGeometry = (blockType) => {
     if (!blockType) {
-      console.error('Invalid blockType:', blockType);
-      return Promise.resolve(new THREE.BoxGeometry(1, 1, 1)); // Default fallback
+        console.error('Invalid blockType:', blockType);
+        return new THREE.BoxGeometry(1, 1, 1); // Default fallback
     }
 
     if (blockType.isEnvironment) {
-      return new Promise((resolve) => {
         if (blockType.textureUri) {
-          new THREE.TextureLoader().load(
-            blockType.textureUri,
-            (texture) => {
-              const aspectRatio = texture.image.width / texture.image.height;
-              const planeGeometry = new THREE.PlaneGeometry(aspectRatio, 1);
-              const plane1 = planeGeometry.clone();
-              const plane2 = planeGeometry.clone();
-              plane2.rotateY(Math.PI / 2);
-              resolve(mergeGeometries([plane1, plane2]));
-            },
-            undefined,
-            (error) => {
-              console.error('Error loading texture:', error);
-              resolve(new THREE.BoxGeometry(1, 1, 1));
-            }
-          );
-        } else {
-          resolve(new THREE.BoxGeometry(1, 1, 1));
+            const texture = new THREE.TextureLoader().load(blockType.textureUri);
+            
+            // Set default aspect ratio of 1 initially
+            const planeGeometry = new THREE.PlaneGeometry(1, 1);
+            const plane1 = planeGeometry.clone();
+            const plane2 = planeGeometry.clone();
+            plane2.rotateY(Math.PI / 2);
+
+            // Update aspect ratio when texture loads
+            texture.onload = () => {
+                const aspectRatio = texture.image.width / texture.image.height;
+                plane1.scale(aspectRatio, 1, 1);
+                plane2.scale(aspectRatio, 1, 1);
+                plane1.computeBoundingSphere();
+                plane2.computeBoundingSphere();
+            };
+
+            return mergeGeometries([plane1, plane2]);
         }
-      });
+        return new THREE.BoxGeometry(1, 1, 1);
     }
     
-    return Promise.resolve(new THREE.BoxGeometry(1, 1, 1));
+    return new THREE.BoxGeometry(1, 1, 1);
   };
   
-  const createBlockMaterial = async (blockType) => {
+  const createBlockMaterial = (blockType) => {
     if (blockType.isCustom) {
-      return new Promise((resolve) => {
-        const texture = new THREE.TextureLoader().load(
-          blockType.textureUri,
-          undefined,
-          undefined,
-          () => {
-            const errorTexture = new THREE.TextureLoader().load('./assets/blocks/error/error.png');
-            errorTexture.magFilter = THREE.NearestFilter;
-            errorTexture.minFilter = THREE.NearestFilter;
-            errorTexture.colorSpace = THREE.SRGBColorSpace;
-            const errorMaterial = new THREE.MeshPhongMaterial({ 
-              map: errorTexture,
-              depthWrite: true,
-              depthTest: true,
-              transparent: true,
-              alphaTest: 0.5
-            });
-            resolve(Array(6).fill(errorMaterial));
-          }
-        );
+        const texture = new THREE.TextureLoader().load(blockType.textureUri);
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.NearestFilter;
         texture.colorSpace = THREE.SRGBColorSpace;
         
+        // Create material with the loaded texture
         const material = new THREE.MeshPhongMaterial({ 
-          map: texture,
-          depthWrite: true,
-          depthTest: true,
-          transparent: true,
-          alphaTest: 0.5
+            map: texture,
+            depthWrite: true,
+            depthTest: true,
+            transparent: true,
+            alphaTest: 0.5
         });
-        resolve(Array(6).fill(material));
-      });
+
+        // Handle texture loading errors by replacing with error texture
+        texture.onerror = () => {
+            const errorTexture = new THREE.TextureLoader().load('./assets/blocks/error/error.png');
+            errorTexture.magFilter = THREE.NearestFilter;
+            errorTexture.minFilter = THREE.NearestFilter;
+            errorTexture.colorSpace = THREE.SRGBColorSpace;
+            material.map = errorTexture;
+            material.needsUpdate = true;
+        };
+
+        return Array(6).fill(material);
     }
     
     const sides = ['+x', '-x', '+y', '-y', '+z', '-z'];
@@ -360,20 +408,14 @@ function TerrainBuilder({
       
       try {
         const loadTexture = (path) => {
-          return new Promise((resolve, reject) => {
-            new THREE.TextureLoader().load(
-              path,
-              (tex) => resolve(tex),
-              undefined,
-              () => reject(new Error(`Failed to load texture: ${path}`))
-            );
-          });
+          const texture = new THREE.TextureLoader().load(path);
+          return texture;
         };
 
         if (blockType.isMultiTexture && blockType.sides.includes(side)) {
-          texture = await loadTexture(sideTexture);
+          texture = loadTexture(sideTexture);
         } else {
-          texture = await loadTexture(fallbackTexture);
+          texture = loadTexture(fallbackTexture);
           if (blockType.isMultiTexture) {
             console.warn(`Missing side texture for ${blockType.name}, using single texture for all faces`);
             const material = new THREE.MeshPhongMaterial({ 
@@ -419,87 +461,117 @@ function TerrainBuilder({
     return materials;
   };
 
-  // Modify placeBlock to use UndoRedoManager without any trimming
-  const placeBlock = async (gridX, gridY, gridZ) => {
+  /// Placement and Modification Functions ///
+  /// Placement and Modification Functions ///
+  /// Placement and Modification Functions ///
+  /// Placement and Modification Functions ///
+
+  const placeBlock = (gridX, gridY, gridZ) => {
+    if (!mode) return;
+
+    const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
+    
     if (mode === 'add') {
-        onTerrainUpdate((prev) => {
-            const newTerrain = { ...prev };
-            const added = {};
-            const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
-            
-            positions.forEach(pos => {
-                const key = `${pos.x},${pos.y},${pos.z}`;
-                if (!prev[key] || prev[key].id !== currentBlockType.id) {
-                    const newBlock = { ...currentBlockType, mesh: null };
-                    newTerrain[key] = newBlock;
-                    added[key] = newBlock;
+        const newTerrain = { ...terrain };
+        const transformMatrix = new THREE.Matrix4();
+        
+        positions.forEach(pos => {
+            const key = `${pos.x},${pos.y},${pos.z}`;
+            if (!terrain[key] || terrain[key].id !== currentBlockType.id) {
+                newTerrain[key] = { ...currentBlockType, mesh: null };
+                
+                const blockMesh = instancedMeshRef.current[currentBlockType.id];
+                if (blockMesh) {
+                    const instanceIndex = blockMesh.count;
+                    
+                    if (instanceIndex >= blockMesh.instanceMatrix.count) {
+                        const expandedSize = Math.ceil(blockMesh.instanceMatrix.count * 1.5) + 1;
+                        const resizedMesh = new THREE.InstancedMesh(
+                            blockMesh.geometry,
+                            blockMesh.material,
+                            Math.max(expandedSize, 10)
+                        );
+                        resizedMesh.count = blockMesh.count;
+                        resizedMesh.instanceMatrix.set(blockMesh.instanceMatrix.array);
+                        
+                        scene.remove(blockMesh);
+                        scene.add(resizedMesh);
+                        instancedMeshRef.current[currentBlockType.id] = resizedMesh;
+                    }
+                    
+                    transformMatrix.identity();
+                    transformMatrix.setPosition(pos.x, pos.y, pos.z);
+                    instancedMeshRef.current[currentBlockType.id].setMatrixAt(instanceIndex, transformMatrix);
+                    instancedMeshRef.current[currentBlockType.id].count++;
+                    instancedMeshRef.current[currentBlockType.id].instanceMatrix.needsUpdate = true;
                 }
-            });
-            
-            return newTerrain;
+            }
         });
+
+        setTerrain(newTerrain);
+        setTotalBlocks(Object.keys(newTerrain).length);
+
     } else if (mode === 'remove') {
-        onTerrainUpdate((prev) => {
-            const newTerrain = { ...prev };
-            const removed = {};
-            const positions = getPlacementPositions({ x: gridX, y: gridY, z: gridZ }, placementSize);
-            
-            positions.forEach(pos => {
-                const key = `${pos.x},${pos.y},${pos.z}`;
-                if (prev[key]) {
-                    removed[key] = prev[key];
-                    delete newTerrain[key];
+        const newTerrain = { ...terrain };
+        
+        positions.forEach(pos => {
+            const key = `${pos.x},${pos.y},${pos.z}`;
+            if (terrain[key]) {
+                const blockType = terrain[key];
+                const blockMesh = instancedMeshRef.current[blockType.id];
+                if (blockMesh) {
+                    blockMesh.count = Math.max(0, blockMesh.count - 1);
+                    blockMesh.instanceMatrix.needsUpdate = true;
                 }
-            });
-            
-            setTotalBlocks(Object.keys(newTerrain).length);
-            return newTerrain;
+                delete newTerrain[key];
+            }
         });
+
+        setTerrain(newTerrain);
+        setTotalBlocks(Object.keys(newTerrain).length);
     }
-  };
+};
 
-  // Update handleMouseUp to focus on axis lock only
-  const handleMouseUp = useCallback(() => {
-    axisLockEnabledRef.current = false;
-  }, []);
+/// Raycast and Grid Intersection Functions ///
+/// Raycast and Grid Intersection Functions ///
+/// Raycast and Grid Intersection Functions ///
+/// Raycast and Grid Intersection Functions ///
 
-  /// raycast to update preview position
-  useFrame(() => {
-    updatePreviewPosition();
-  });
+const getRaycastIntersection = (raycastOrigin) => {
+    const raycastIntersects = raycastOrigin.intersectObjects(scene.children);
+    if (!raycastIntersects.length) return null;
 
-  // Helper functions
-  const getRaycastIntersection = (raycaster, instancedMeshRefs, mode) => {
-    const intersects = raycaster.intersectObjects(Object.values(instancedMeshRefs.current));
-    if (!intersects.length) return null;
-
-    const matrix = new THREE.Matrix4();
-    intersects[0].object.getMatrixAt(intersects[0].instanceId, matrix);
-
-    return {
-        point: intersects[0].point,
-        normal: intersects[0].face.normal,
-    };
-  };
-
-  const getGridIntersection = (raycaster, gridPlane) => {
-    // Get camera direction for debugging
-    const cameraDirection = new THREE.Vector3();
-    camera.getWorldDirection(cameraDirection);
+    let rayHitBlock = null;
+    let rayHitShadowPlane = null;
     
-    // Create a plane that's aligned with the world grid and offset by -0.5 to match grid helper
-    const tempPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5); // Changed constant to 0.5
-    const planeIntersection = new THREE.Vector3();
+    for (const intersect of raycastIntersects) {
+        if (intersect.object.isInstancedMesh) {
+            rayHitBlock = intersect;
+            break;
+        }
+        if (intersect.object === shadowPlaneRef.current) {
+            rayHitShadowPlane = intersect;
+        }
+    }
     
-    if (!raycaster.ray.intersectPlane(tempPlane, planeIntersection)) return null;
+    if (rayHitBlock) {
+        return {
+            point: rayHitBlock.point,
+            normal: rayHitBlock.face.normal,
+        };
+    }
+    if (rayHitShadowPlane) {
+        const startingPosition = new THREE.Vector3(rayHitShadowPlane.point.x, 0, rayHitShadowPlane.point.z);
+        return {
+            point: startingPosition,
+            normal: rayHitShadowPlane.face.normal,
+        };
+    }
     
-    return {
-        point: planeIntersection,
-        normal: new THREE.Vector3(0, 1, 0)
-    };
-  };
+    return null;
+};
 
-  const calculateGridPosition = (intersection, mode, currentBlockType, faceNormal) => {
+const calculateGridPosition = (intersection, mode, currentBlockType, faceNormal) => {
     if (!intersection) return null;
     
     let position;
@@ -521,147 +593,118 @@ function TerrainBuilder({
       }
 
     return position;
-  };
+};
 
-  const applyAxisLock = (position, startPosition, lockedAxis) => {
+const applyAxisLock = (position, startPosition, lockedAxis) => {
     if (!startPosition || !lockedAxis) return position;
 
     const diff = new THREE.Vector3().subVectors(position, startPosition);
     const constrained = startPosition.clone();
     constrained[lockedAxis] += diff[lockedAxis];
     return constrained;
-  };
+};
 
-  function updatePreviewPosition() {
+// Function to update preview position based on mouse position
+const updatePreviewPosition = () => {
     const canvas = gl.domElement;
     const rect = canvas.getBoundingClientRect();
     
-    // Calculate normalized device coordinates (NDC) using clientX/Y
     const normalizedMouse = {
         x: (((mouse.x + 1) / 2 * rect.width) - rect.width/2) / rect.width * 2,
         y: (((mouse.y + 1) / 2 * rect.height) - rect.height/2) / rect.height * 2
     };
 
     raycaster.setFromCamera(normalizedMouse, camera);
-    
-    // Get intersection point (either with existing blocks or grid)
-    const intersection = getRaycastIntersection(raycaster, instancedMeshRefs, mode) || 
-                        getGridIntersection(raycaster, gridPlane);
+    const intersection = getRaycastIntersection(raycaster);
 
-    /// if no intersection, set debug info and return
     if (!intersection) {
-      setDebugInfo({ mouse: { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2) }, grid: {}, preview: {} });
-      return;
+        setDebugInfo({ mouse: { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2) }, grid: {}, preview: {} });
+        return null;
     }
 
-    // Calculate grid position
     let gridPosition = calculateGridPosition(intersection, mode, currentBlockType, intersection.normal);
-    if (!gridPosition) return;
+    if (!gridPosition) return null;
 
-    // Apply constraints
-    if (Object.keys(terrain).length === 0 || intersection.normal.equals(new THREE.Vector3(0, 1, 0))) {
-      gridPosition.y = 0;
-    }
-    if (lockedY !== null) {
-      gridPosition.y = lockedY;
-    }
-    if (axisLockEnabled && isPlacing && lockedAxis && placementStartPosition.current) {
-      gridPosition = applyAxisLock(gridPosition, placementStartPosition.current, lockedAxis);
+    let finalPosition = gridPosition.clone();
+    if (axisLockEnabled && lockedAxis && placementStartPosition.current) {
+        finalPosition = applyAxisLock(gridPosition, placementStartPosition.current, lockedAxis);
     }
 
-    // Update environment preview if needed
-    if (currentBlockType?.isEnvironment && environmentBuilder.current) {
-      environmentBuilder.current.updateModelPreview(gridPosition);
+    if (currentBlockType?.isEnvironment) {
+        environmentBuilderRef.current.updateModelPreview(finalPosition);
     }
 
-    // Handle continuous block placement
+    if (!lastPreviewPosition.current.equals(finalPosition)) {
+        setPreviewPosition(finalPosition);
+        lastPreviewPosition.current.set(
+            Math.round(finalPosition.x * 10) / 10,
+            Math.round(finalPosition.y * 10) / 10, 
+            Math.round(finalPosition.z * 10) / 10
+        );
+    }
+};
+
+// Function to handle block placement
+const handleBlockPlacement = (position) => {
+    if (!position || !isPlacing) return;
+
     const mouseMovementDistance = new THREE.Vector2(
-      mouse.x - lastMousePlacementPositionRef.current.x,
-      mouse.y - lastMousePlacementPositionRef.current.y
+        mouse.x - lastMousePlacementPositionRef.current.x,
+        mouse.y - lastMousePlacementPositionRef.current.y
     ).length() * window.innerWidth/2;
 
-    if (isPlacing && mouseMovementDistance >= MOUSE_MOVE_THRESHOLD) {
-        placeBlock(gridPosition.x, gridPosition.y, gridPosition.z);
-        lastMousePlacementPositionRef.current.copy(mouse);
-
-        // Update preview position, but only if the mouse moved
-        setPreviewPosition(gridPosition);
-    }
-    else if(!isPlacing){
-        setPreviewPosition(gridPosition);
-    }
-
-    // Handle axis locking
     if (axisLockEnabled && !lockedAxis && placementStartPosition.current) {
-      const diff = new THREE.Vector3().subVectors(gridPosition, placementStartPosition.current);
-      if (diff.length() > AXIS_LOCK_THRESHOLD) {
-        const [absX, absY, absZ] = [Math.abs(diff.x), Math.abs(diff.y), Math.abs(diff.z)];
-        const maxDiff = Math.max(absX, absY, absZ);
-        setLockedAxis(maxDiff === absX ? 'x' : maxDiff === absY ? 'y' : 'z');
-      }
+        const diff = new THREE.Vector3().subVectors(position, placementStartPosition.current);
+        if (diff.length() > AXIS_LOCK_THRESHOLD) {
+            const [absX, absY, absZ] = [Math.abs(diff.x), Math.abs(diff.y), Math.abs(diff.z)];
+            const maxDiff = Math.max(absX, absY, absZ);
+            setLockedAxis(maxDiff === absX ? 'x' : maxDiff === absY ? 'y' : 'z');
+        }
     }
 
-    /// save preview position
-    lastPreviewPosition.current.set(
-      Math.round(gridPosition.x * 10) / 10,
-      Math.round(gridPosition.y * 10) / 10, 
-      Math.round(gridPosition.z * 10) / 10
-    );
+    if (mouseMovementDistance >= MOUSE_MOVE_THRESHOLD) {
+        placeBlock(position.x, position.y, position.z);
+        lastMousePlacementPositionRef.current.copy(mouse);
+    }
+};
 
-    // Update debug info
-    setDebugInfo({
-      mouse: { x: mouse.x.toFixed(2), y: mouse.y.toFixed(2) },
-      grid: { x: gridPosition.x, y: gridPosition.y, z: gridPosition.z },
-      preview: lastPreviewPosition.current,
-      lockedAxis: axisLockEnabled ? lockedAxis : 'None',
-      totalEnvironmentObjects: totalEnvironmentObjects,
-    });
-  }
-
-  // Modify handlePointerDown to capture initial state
-  const handlePointerDown = async (event) => {
+// Modify handlePointerDown to capture initial state
+const handleMouseDown = (event) => {
     if (event.button === 0) {
         setIsPlacing(true);
         playPlaceSound();
-        
-        // Capture initial state when placement starts
-        const currentEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-        placementStartState.current = { 
-          terrain: { ...terrain },
-          environment: currentEnvironment
-        };
         
         if (previewPosition) {
             setLockedY(previewPosition.y);
             
             if (currentBlockType?.isEnvironment && isFirstBlock.current) {
                 lastMousePlacementPositionRef.current.copy(mouse);
-                environmentBuilder.current.placeEnvironmentModel();
-            } else if (isFirstBlock.current){
+                environmentBuilderRef.placeEnvironmentModel();
+            } else if (isFirstBlock.current) {
                 lastMousePlacementPositionRef.current.copy(mouse);
                 placeBlock(previewPosition.x, previewPosition.y, previewPosition.z);
             }
             
             isFirstBlock.current = false;
         }
+        handleBlockPlacement(previewPosition);
     }
-  };
+};
 
-  // Move undo state saving to handlePointerUp
-  const handlePointerUp = async (event) => {
+// Move undo state saving to handlePointerUp
+const handleMouseUp = (event) => {
     if (event.button === 0) {
         setIsPlacing(false);
         setLockedY(null);
+        
         isFirstBlock.current = true;
         
-        // Save state to undo stack only if we made changes
         if (placementStartState.current) {
             const currentState = {
                 terrain: { ...terrain },
-                environment: await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
+                environment: DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
             };
             
-            // Calculate changes
             const changes = {
                 terrain: {
                     added: {},
@@ -673,7 +716,6 @@ function TerrainBuilder({
                 }
             };
             
-            // Calculate terrain changes
             Object.entries(currentState.terrain).forEach(([key, value]) => {
                 if (!placementStartState.current.terrain[key]) {
                     changes.terrain.added[key] = value;
@@ -686,10 +728,9 @@ function TerrainBuilder({
                 }
             });
             
-            // Save changes to UndoRedoManager if there were any changes
             if (Object.keys(changes.terrain.added).length > 0 || 
                 Object.keys(changes.terrain.removed).length > 0) {
-                await UndoRedoManager.saveUndo(changes);
+                UndoRedoManager.saveUndo(changes);
             }
             
             placementStartState.current = null;
@@ -700,19 +741,9 @@ function TerrainBuilder({
             placementStartPosition.current = null;
         }
     }
-  };
+};
 
-  // Add event listener for mouseup
-  useEffect(() => {
-    if (isInitialized) {
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isInitialized, handleMouseUp]);
-
-  const getPlacementPositions = (centerPos, placementSize) => {
+const getPlacementPositions = (centerPos, placementSize) => {
     const positions = [];
     
     // Always include center position
@@ -782,118 +813,16 @@ function TerrainBuilder({
     }
     
     return positions;
-  };
+};
 
-  const handleDrop = useCallback((event) => {
-    event.preventDefault();
-    const draggedBlockId = parseInt(currentDraggingBlock);
-    
-    const canvas = gl.domElement;
-    const rect = canvas.getBoundingClientRect();
-    const normalizedMouse = {
-      x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      y: -((event.clientY - rect.top) / rect.height) * 2 + 1
-    };
-    
-    raycaster.setFromCamera(normalizedMouse, camera);
-    const intersects = raycaster.intersectObjects(Object.values(instancedMeshRefs.current));
-    
-    if (intersects.length > 0) {
-      const intersection = intersects[0];
-      const matrix = new THREE.Matrix4();
-      intersection.object.getMatrixAt(intersection.instanceId, matrix);
-      const position = new THREE.Vector3();
-      position.setFromMatrixPosition(matrix);
-      
-      const startKey = `${Math.round(position.x)},${Math.round(position.y)},${Math.round(position.z)}`;
-      const draggedBlockType = [...blockTypes, ...customBlocks].find(b => b.id === draggedBlockId);
-      
-      if (draggedBlockType) {
-        // Save current state to undo stack before making changes
-        setUndoStates(prev => [...prev, { terrain: { ...terrain } }]);
-        setRedoStates([]); // Clear redo stack when new action is performed
-
-        onTerrainUpdate(prevTerrain => {
-          const targetBlock = prevTerrain[startKey];
-          if (!targetBlock) return prevTerrain;
-          
-          const targetBlockId = parseInt(targetBlock.id);
-          const newTerrain = { ...prevTerrain };
-          const visited = new Set();
-          const queue = [startKey];
-          
-          while (queue.length > 0) {
-            const key = queue.shift();
-            if (visited.has(key)) continue;
-            
-            visited.add(key);
-            const block = prevTerrain[key];
-            
-            if (!block || parseInt(block.id) !== targetBlockId) continue;
-            
-            newTerrain[key] = { ...draggedBlockType };
-            
-            const [x, y, z] = key.split(',').map(Number);
-            const adjacent = [
-              `${x+1},${y},${z}`,
-              `${x-1},${y},${z}`,
-              `${x},${y+1},${z}`,
-              `${x},${y-1},${z}`,
-              `${x},${y},${z+1}`,
-              `${x},${y},${z-1}`
-            ];
-            
-            adjacent.forEach(adjKey => {
-              if (prevTerrain[adjKey] && !visited.has(adjKey)) {
-                queue.push(adjKey);
-              }
-            });
-          }
-
-          // Save to IndexedDB
-          DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain)
-            .catch(e => console.warn('Failed to save terrain to IndexedDB:', e));
-
-          return newTerrain;
-        });
-      }
-    }
-  }, [currentDraggingBlock, raycaster, camera, onTerrainUpdate, gl, customBlocks, terrain, setUndoStates, setRedoStates]);
-
-  // Register the handleDrop function with the ref callback
-  useEffect(() => {
-    if (onHandleDropRef) {
-      onHandleDropRef(handleDrop);
-    }
-  }, [handleDrop, onHandleDropRef]);
-
-  // Add this useEffect after the other useEffects
-  useEffect(() => {
-    if (!gl.domElement) return;
-
-    const canvas = gl.domElement;
-    
-    const handleDragOver = (e) => {
-      e.preventDefault();
-    };
-
-    canvas.addEventListener('dragover', handleDragOver);
-    canvas.addEventListener('drop', handleDrop);
-
-    return () => {
-      canvas.removeEventListener('dragover', handleDragOver);
-      canvas.removeEventListener('drop', handleDrop);
-    };
-  }, [gl, handleDrop]);
-
-  // Update the useEffect that handles custom blocks
-  useEffect(() => {
-    if (!isInitialized) return;
+// Update the useEffect that handles custom blocks
+useEffect(() => {
+    if (!meshesInitialized) return;
 
     const currentCustomBlockIds = new Set(customBlocks.map(block => block.id));
 
     // Clean up removed custom blocks
-    Object.entries(instancedMeshRefs.current).forEach(([id, mesh]) => {
+    Object.entries(instancedMeshRef.current).forEach(([id, mesh]) => {
       const numericId = parseInt(id);
       if (numericId >= 500 && !currentCustomBlockIds.has(numericId)) {
         scene.remove(mesh);
@@ -903,34 +832,52 @@ function TerrainBuilder({
         } else if (mesh.material) {
           mesh.material.dispose();
         }
-        delete instancedMeshRefs.current[id];
+        delete instancedMeshRef.current[id];
       }
     });
 
     // Initialize new custom blocks
-    customBlocks.forEach(async (blockType) => {
-      if (!instancedMeshRefs.current[blockType.id]) {
+    customBlocks.forEach((blockType) => {
+      if (!instancedMeshRef.current[blockType.id]) {
         const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const materials = await createBlockMaterial(blockType);
+        const materials = createBlockMaterial(blockType);
         
-        instancedMeshRefs.current[blockType.id] = new THREE.InstancedMesh(
+        instancedMeshRef.current[blockType.id] = new THREE.InstancedMesh(
           geometry,
           materials[0], // Use first material for all faces
           1
         );
         
-        instancedMeshRefs.current[blockType.id].userData.blockTypeId = blockType.id;
-        instancedMeshRefs.current[blockType.id].count = 0;
-        scene.add(instancedMeshRefs.current[blockType.id]);
+        instancedMeshRef.current[blockType.id].userData.blockTypeId = blockType.id;
+        instancedMeshRef.current[blockType.id].count = 0;
+        scene.add(instancedMeshRef.current[blockType.id]);
       }
     });
-  }, [customBlocks, scene, isInitialized]);
+  }, [customBlocks, meshesInitialized]);
 
-  useEffect(() => {
-    if (scene && onSceneReady) {
-      onSceneReady(scene);
+
+  // Update grid size
+  const updateGridSize = () => {
+    if (gridRef.current) {
+      
+      // Get grid size from localStorage or use default value
+      const savedGridSize = parseInt(localStorage.getItem('gridSize'), 10) || gridSize;
+      console.log("Updating grid size from value:", gridSize, "to value:", savedGridSize);
+
+      if (gridRef.current.geometry) {
+        gridRef.current.geometry.dispose();
+        gridRef.current.geometry = new THREE.GridHelper(savedGridSize, savedGridSize, 0x5c5c5c, 0xeafaea).geometry;
+        gridRef.current.material.opacity = 0.1;
+        gridRef.current.position.set(0.5, -0.5, 0.5);
+      }
+
+      if (shadowPlaneRef.current.geometry) {
+        shadowPlaneRef.current.geometry.dispose();
+        shadowPlaneRef.current.geometry = new THREE.PlaneGeometry(savedGridSize, savedGridSize);
+        shadowPlaneRef.current.position.set(0.5, -0.5, 0.5);
+      }
     }
-  }, [scene, onSceneReady]);
+  }
 
   return (
     <>
@@ -972,38 +919,31 @@ function TerrainBuilder({
         castShadow={false}
       />
 
+      {/* Ambient light */}
       <ambientLight intensity={0.8} />
 
-      <gridHelper 
-        ref={gridRef}
-        args={[gridSize, gridSize, 0x5c5c5c, 0xeafaea]} 
-        position={[0.5, -0.5, 0.5]}
-        transparent={true}
-        opacity={0.5}
-      >
-      </gridHelper>
-
+      {/* mesh of invisible plane to receive shadows, and grid helper to display grid */}
       <mesh 
-        position={[0, -0.5, 0]} 
+        ref={shadowPlaneRef}
+        position={[0.5, -0.51, 0.5]} 
         rotation={[-Math.PI / 2, 0, 0]}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
+        onPointerDown={handleMouseDown}
+        onPointerUp={handleMouseUp}
         onPointerLeave={() => setIsPlacing(false)}
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onDragEnter={(e) => e.preventDefault()}
-        visible={true}
+        transparent={true}
         receiveShadow={true}
-        castShadow={true}
+        castShadow={false}
+        frustumCulled={false}
       >
         <planeGeometry args={[gridSize, gridSize]} />
         <meshPhongMaterial transparent opacity={0} />
       </mesh>
+      <gridHelper position={[0.5, -0.5, 0.5]} ref={gridRef} />
 
       {Object.entries(blockCounts).map(([id]) => (
-        <primitive 
+        <primitive s
           key={id} 
-          object={instancedMeshRefs.current[id]} 
+          object={instancedMeshRef.current[id]} 
           castShadow 
           receiveShadow
         />
@@ -1032,21 +972,7 @@ function TerrainBuilder({
           ))}
         </>
       )}
-
-      {/* Shadow plane underneath the grid*/}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]} receiveShadow>
-        <planeGeometry args={[gridSize, gridSize]} />
-        <shadowMaterial transparent opacity={0.2} />
-      </mesh>
-
-      {/* Debug visualization of raycast intersection */}
-      {raycastPoint && (
-        <mesh position={raycastPoint}>
-          <sphereGeometry args={[0.1, 16, 16]} />
-          <meshBasicMaterial color="red" />
-        </mesh>
-      )}
-
+      
     </>
   );
 }

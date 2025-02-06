@@ -4,7 +4,7 @@ import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import { DatabaseManager, STORES } from '../DatabaseManager';
 import { environmentModels } from '../EnvironmentBuilder';
-import { updateBlockTypes, getBlockTypes, blockTypes } from '../TerrainBuilder';
+import { updateBlockTypes} from '../TerrainBuilder';
 import "../../css/BlockToolsSidebar.css";
 
 const SCALE_MIN = 0.1;
@@ -45,11 +45,7 @@ const BlockToolsSidebar = ({
 
     // Update the tab switching logic
   const handleTabChange = (newTab) => {
-    // Remove any existing environment preview when switching tabs
-    if (environmentBuilder.current) {
-        environmentBuilder.current.removePreview();
-    }
-    
+
     // Reset current block type to default block when switching to blocks tab
     if (newTab === "blocks") {
         setCurrentBlockType(blockTypes[0]);

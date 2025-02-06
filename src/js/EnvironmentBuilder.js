@@ -41,7 +41,6 @@ export const environmentModels = (() => {
       result.push(model);
     });
 
-    console.log('Final environment models:', result);
     return result;
 
   } catch (error) {
@@ -152,18 +151,15 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     const preloadModels = async () => {
-        console.log('Starting model preload sequence...');
         
         // First load custom models
         await loadCustomModelsFromDB();
-        console.log('Custom models loaded from DB');
         
         // Then load and setup all models (both default and custom)
         const loadPromises = environmentModels.map(async model => {
             try {
                 const gltf = await loadModel(model.modelUrl);
                 await setupInstancedMesh(model, gltf);
-                console.log(`Model loaded and setup: ${model.name}`);
             } catch (error) {
                 console.error(`Error preloading model ${model.name}:`, error);
             }
@@ -171,11 +167,9 @@ export const EnvironmentBuilder = forwardRef(({
         
         // Wait for all models to be loaded and set up
         await Promise.all(loadPromises);
-        console.log('All models loaded and setup complete');
 
         // Finally, load saved environment data
         await loadSavedEnvironment();
-        console.log('Environment data loaded');
     };
     
     // Update the setTotalEnvironmentObjects usage
@@ -196,7 +190,6 @@ export const EnvironmentBuilder = forwardRef(({
     useEffect(() => {
         if (placeholderMesh && currentBlockType?.isEnvironment) {
             const transform = getPlacementTransform();
-            console.log('Updating preview with new settings:', transform);
             
             // Apply transform only to the root mesh
             placeholderMesh.scale.copy(transform.scale);
@@ -400,13 +393,10 @@ export const EnvironmentBuilder = forwardRef(({
     const loadSavedEnvironment = async () => {
         try {
             const savedEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
-            console.log('Retrieved environment data:', savedEnvironment);
             
             if (Array.isArray(savedEnvironment) && savedEnvironment.length > 0) {
                 await updateEnvironmentToMatch(savedEnvironment);
-                console.log('Updated environment state');
             } else {
-                console.log('No saved environment data found, clearing');
                 await clearEnvironments();
             }
         } catch (error) {
@@ -649,7 +639,6 @@ export const EnvironmentBuilder = forwardRef(({
             // Place instances at all positions
             const placedInstances = positions.map((position) => {
                 const transform = getPlacementTransform();
-                console.log("Placing instance with transform:", transform);
                 
                 // Create matrix from position and transform
                 const matrix = new THREE.Matrix4();

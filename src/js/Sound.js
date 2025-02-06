@@ -7,7 +7,7 @@ const placeSound = new Audio('/sounds/place.wav');
 placeSound.volume = 0.1;
 
 // State variables
-let isMuted = localStorage.getItem('isMuted') === 'true';
+export let isMuted = localStorage.getItem('isMuted') === 'true';
 let clickTimeout = null;
 let lastPlayTime = 0;
 

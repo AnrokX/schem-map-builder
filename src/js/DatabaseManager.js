@@ -102,4 +102,24 @@ export class DatabaseManager {
       console.warn(`Error clearing store ${storeName}:`, error);
     }
   }
+
+  static async clearDatabase() {
+    // Show confirmation dialog
+    const confirmed = window.confirm("Warning: This will clear all data including the terrain, environment, and custom blocks. \n\nAre you sure you want to continue?");
+    
+    if (!confirmed) {
+      return; // User cancelled the operation
+    }
+
+    try {      
+      // Clear all stores sequentially
+      for (const storeName of Object.values(STORES)) {
+        await this.clearStore(storeName);
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Error clearing database:', error);
+      throw error;
+    }
+  }
 }

@@ -22,12 +22,15 @@
   cursor: default;
 }
 
-html {
+/* Set base dimensions and overflow for both html and body */
+html,
+body {
   min-width: 1300px !important;
   min-height: 872px !important;
   overflow: hidden;
 }
 
+/* Body-specific styles */
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -35,9 +38,6 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  min-width: 1300px !important;
-  min-height: 872px !important;
-  overflow: hidden;
 }
 
 code {
@@ -100,90 +100,9 @@ button:active {
   text-overflow: ellipsis;
 }
 
-/* Controls Container */
-.controls-container {
-  width: 100%;
-  min-width: 1300px;
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding: 5px;
-  background-color: transparent;
-  box-sizing: border-box;
-}
-
-.control-label {
-  font-size: 16px;
-  text-align: center;
-  margin-top: 5px;
-}
-
 /* First, disable dragging globally */
 * {
   -webkit-user-drag: none;
-}
-
-/* ==========================================================================
-   Modal Styles
-   ========================================================================== */
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0,0,0,0.5);
-  display: flex;
-  justify-content:center;
-  align-items:center;
-  z-index: 100;
-}
-
-.modal-content {
-  border-radius: 10px;
-  width: 300px;
-  padding: 30px;
-  background-color: rgba(255, 255, 255, 0.7);
-}
-
-.modal-title {
-  margin-bottom: 15px;
-}
-
-.modal-description {
-  margin-bottom: 30px;
-  text-align: center;
-  width: 100%;
-  font-size: 14px;
-  color: #444444;
-}
-
-.modal-input {
-  margin-bottom: 10px;
-}
-
-.modal-input label {
-  margin-bottom: 5px;
-}
-
-.modal-input input {
-  width: 70%;
-  padding: 5px;
-  margin-top: 5px;
-  justify-self: center;
-  box-sizing: border-box;
-}
-
-.modal-buttons {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 20px;
-  gap: 10px;
 }
 
 /* ==========================================================================
@@ -214,46 +133,6 @@ button:active {
 
 .App-link {
   color: #61dafb;
-}
-
-/* Update existing button styles */
-.control-button {
-  margin: 0 2px;
-  padding: 5px;
-  background: white;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-}
-
-/* Update modal button styles */
-.modal-buttons button {
-  background: linear-gradient(to bottom, #34a7ff, #5cb8ff);
-  border: none;
-  border-radius: 5px;
-  padding: 8px 15px;
-  cursor: pointer;
-  color: white;
-  font-weight: bold;
-  font-size: 14px;
-  text-transform: uppercase;
-}
-
-.menu-button:hover,
-.import-export-button:hover,
-.modal-buttons button:hover {
-  background: linear-gradient(to bottom, #5cb8ff, #34a7ff);
-}
-
-.menu-button:active,
-.import-export-button:active,
-.modal-buttons button:active {
-  background: linear-gradient(to bottom, #2196f3, #34a7ff);
 }
 
 /* Add this new style for the Hytopia logo */
@@ -302,108 +181,6 @@ button:active {
   color: white;
 }
 
-/* Add this new style for the clear map button */
-.control-button.clear-map {
-  background: linear-gradient(to bottom, #ff3434, #ff5c5c);
-  color: white;
-}
-
-.control-button.clear-map:hover {
-  background: linear-gradient(to bottom, #ff5c5c, #ff3434);
-}
-
-.import-export-button {
-  width:90px;
-}
-
-/* If you're using a label for the file input, style it consistently */
-.import-export-button label {
-  font-size: 14px; /* Same as the button font size */
-  cursor: pointer;
-}
-
-/* Hide the actual file input */
-.import-export-button input[type="file"] {
-  display: none;
-}
-
-.control-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 10px;
-  border: 2px solid #ccc;
-  border-radius: 10px;
-  background-color: rgba(255, 255, 255, 0.3);
-  overflow-y: auto;
-  margin: 0 5px;
-  margin-bottom: 5px;
-  min-width: 90px;
-  height: 58px;
-}
-
-.control-button-wrapper {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 3px;
-  width: 100%;
-}
-
-/* Helper Classes & Utilities */
-.controls-description {
-  position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: #6d6d6d;
-  padding: 8px 16px;
-  border-radius: 5px;
-  font-family: monospace;
-  font-size: 14px;
-  z-index: 1;
-  white-space: nowrap;
-}
-
-/* Camera Angle Slider */
-.camera-angle-slider {
-  position: fixed;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 200px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  background-color: rgba(255, 255, 255, 0.2);
-  padding: 10px 5px;
-  border-radius: 10px;
-}
-
-.vertical-slider {
-  writing-mode: vertical-lr;
-  direction: rtl;
-  width: 8px;
-  height: 100%;
-}
-
-/* Add these new styles */
-.control-divider {
-  width: 100%;
-  height: 1px;
-  background-color: rgba(255, 255, 255, 0.3);
-  margin: 5px 0;
-}
-
-/* Replace the existing control-divider style with this */
-.control-divider-vertical {
-  width: 1px;
-  height: 30px;
-  background-color: rgba(255, 255, 255, 0.3);
-  margin: 0 8px;
-}
-
 .checkbox-input-wrapper {
   width: 100%;
   display: inline-flex;
@@ -419,15 +196,6 @@ button:active {
 
 .checkbox-input-wrapper input[type="checkbox"] {
   margin-top: 7px;
-}
-
-.modal-input input[type="range"] {
-  width: 150px;
-}
-
-.modal-input span {
-  min-width: 40px;
-  display: inline-block;
 }
 
 /* Add these new styles */

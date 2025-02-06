@@ -10,16 +10,7 @@ const BlockButton = ({
   onDelete, 
   handleDragStart 
 }) => {
-  useEffect(() => {
-    console.log('BlockButton updated:', {
-      name: blockType.name,
-      isCustom: blockType.isCustom,
-      textureUri: blockType.textureUri,
-      isMultiTexture: blockType.isMultiTexture,
-      sideTextures: blockType.sideTextures
-    });
-  }, [blockType]);
-
+  
   const getTextureUrl = (blockType) => {
     if (!blockType.textureUri || blockType.textureUri.includes('error.png')) return '';
     
