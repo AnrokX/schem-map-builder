@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { FaTrash } from 'react-icons/fa';
 import Tooltip from './Tooltip';
 import { playUIClick } from '../Sound';

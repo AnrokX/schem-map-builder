@@ -560,6 +560,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		positions.push({ ...centerPos });
 
 		switch (placementSize) {
+			default:
 			case "single":
 				break;
 
@@ -660,7 +661,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 				scene.add(instancedMeshRef.current[blockType.id]);
 			}
 		});
-	}, [customBlocks, meshesInitializedRef.current]);
+	}, [customBlocks, scene]);
 
 	// Update grid size
 	const updateGridSize = (newGridSize) => {
@@ -799,7 +800,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 				}
 			});
 		};
-	}, []); // Empty dependency array means this only runs on unmount
+	}, [scene]); // Empty dependency array means this only runs on unmount
 
 	//// HTML Return Render
 	return (

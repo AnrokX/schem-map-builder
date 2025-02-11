@@ -2,58 +2,55 @@ import React, { useState, useEffect, useRef } from 'react';
 
 const Tooltip = ({ children, text }) => {
   const [isVisible, setIsVisible] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0, isRightSide: false });
+  const [tooltipWidth, setTooltipWidth] = useState(0);
   const tooltipRef = useRef(null);
-  const currentMousePosition = useRef({ x: 0, y: 0 });
-  const hideTimeoutRef = useRef(null);
 
-  /// sets position of tooltip as the mouse moves within the tooltip
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      currentMousePosition.current = { x: e.clientX, y: e.clientY };
-    };
-
-    if (isVisible) {
-      window.addEventListener('mousemove', handleMouseMove);
+    if (isVisible && tooltipRef.current) {
+      setTooltipWidth(tooltipRef.current.offsetWidth);
     }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-      }
-    };
   }, [isVisible]);
-
 
   /// sets initial position when mouse enters the component
   const handleMouseEnter = (e) => {
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current);
-    }
-    // Set initial position before showing tooltip
-    currentMousePosition.current = { x: e.clientX, y: e.clientY };
+    const screenWidth = window.innerWidth;
+    const isRightSide = e.clientX > screenWidth / 2;
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY,
+      isRightSide 
+    });
     setIsVisible(true);
   };
 
-  const handleMouseLeave = () => {
-    hideTimeoutRef.current = setTimeout(() => {
-      setIsVisible(false);
-    }, 100);
+  const handleMouseLeave = (e) => {
+    setIsVisible(false);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isVisible) return;
+    const screenWidth = window.innerWidth;
+    const isRightSide = e.clientX > screenWidth / 2;
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY,
+      isRightSide 
+    });
   };
 
   return (
-    <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
+    <div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onMouseMove={handleMouseMove}>
       {children}
       {isVisible && (
         <div
           ref={tooltipRef}
           style={{
             position: 'fixed',
-            top: `${currentMousePosition.current.y - 30}px`,
-            left: `${currentMousePosition.current.x + 10}px`,
+            top: `${mousePosition.y - 30}px`,
+            left: mousePosition.isRightSide 
+              ? `${mousePosition.x - 20 - tooltipWidth}px`
+              : `${mousePosition.x + 20}px`,
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             color: 'white',
             padding: '5px 10px',
@@ -61,6 +58,8 @@ const Tooltip = ({ children, text }) => {
             fontSize: '14px',
             zIndex: 1000,
             pointerEvents: 'none',
+            opacity: tooltipWidth ? 1 : 0,
+            transition: 'opacity 0.1s',
           }}
         >
           {text}
