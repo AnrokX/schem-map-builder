@@ -275,3 +275,32 @@ button:active {
   100% { transform: rotate(360deg); }
 }
 
+.under-construction-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.under-construction-content {
+  text-align: center;
+  color: white;
+  padding: 2rem;
+}
+
+.under-construction-content h2 {
+  margin: 1rem 0;
+  color: #f0f0f0;
+}
+
+.under-construction-content p {
+  margin: 0.5rem 0;
+  color: #cccccc;
+}
+

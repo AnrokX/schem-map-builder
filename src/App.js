@@ -13,9 +13,10 @@ import "./css/App.css";
 import {toggleMute, isMuted} from "./js/Sound";
 import DebugInfo from './js/components/DebugInfo';
 import BlockToolsSidebar from './js/components/BlockToolsSidebar';
-import { version } from './js/Constants';
+import { version, IS_UNDER_CONSTRUCTION } from './js/Constants';
 import ToolBar from './js/components/ToolBar';
 import {DatabaseManager} from './js/DatabaseManager';
+import UnderConstruction from "./js/components/UnderConstruction";
 
 function App() {
   const [terrain, setTerrainState] = useState({});
@@ -55,6 +56,8 @@ function App() {
 
   return (
     <div className="App">
+      {IS_UNDER_CONSTRUCTION && <UnderConstruction />}
+      
       {/* Loading Screen */}
       {!pageIsLoaded && <LoadingScreen />}
 
