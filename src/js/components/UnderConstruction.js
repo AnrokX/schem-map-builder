@@ -7,7 +7,7 @@ const UnderConstruction = () => {
       <div className="under-construction-content">
         <img src={hytopiaLogo} alt="Hytopia Logo" className="loading-logo" />
         <h2>Under Construction</h2>
-        <p>We're working on making the Hytopia Map Builder even better!</p>
+        <p>We're working on making the Hytopia World Editor even better!</p>
         <p>Please check back soon.</p>
       </div>
     </div>
