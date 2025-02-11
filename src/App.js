@@ -1,6 +1,6 @@
 import React, {useState, useRef} from "react";
 import { Canvas } from "@react-three/fiber";
-import TerrainBuilder, { blockTypes} from "./js/TerrainBuilder";
+import TerrainBuilder, {blockTypes} from "./js/TerrainBuilder";
 import EnvironmentBuilder from "./js/EnvironmentBuilder";
 import {
   FaCamera,
@@ -37,6 +37,11 @@ function App() {
   const [gridSize, setGridSize] = useState(100);
   const environmentBuilderRef = useRef(null);
 
+  /// this listens for the state change of the block type and updates the current block type
+  const handleBlockTypeChange = (newBlockType) => {
+    setCurrentBlockType(newBlockType);
+  };
+
   const LoadingScreen = () => (
     <div className="loading-screen">
       <img src={hytopiaLogo} alt="Hytopia Logo" className="loading-logo" />
@@ -62,12 +67,12 @@ function App() {
       <BlockToolsSidebar
         activeTab={activeTab}
         blockTypes={blockTypes}
-        currentBlockType={currentBlockType}
         customBlocks={customBlocks}
         setCustomBlocks={setCustomBlocks}
-        setCurrentBlockType={setCurrentBlockType}
+        setCurrentBlockType={handleBlockTypeChange}
         updateTerrainWithHistory={setTerrainState}
         setActiveTab={setActiveTab}
+        environmentBuilderRef={environmentBuilderRef}
       />
 
       <Canvas shadows className="canvas-container">
@@ -117,7 +122,6 @@ function App() {
         placementSize={placementSize}
         setPlacementSize={setPlacementSize}
         terrain={terrain}
-        currentBlockType={currentBlockType}
         setTerrainState={setTerrainState}
         setGridSize={setGridSize}
       />

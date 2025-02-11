@@ -4,7 +4,7 @@ import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import { DatabaseManager, STORES } from '../DatabaseManager';
 import { environmentModels } from '../EnvironmentBuilder';
-import { updateBlockTypes} from '../TerrainBuilder';
+import { updateBlockTypes, blockTypes } from '../TerrainBuilder';
 import "../../css/BlockToolsSidebar.css";
 
 const SCALE_MIN = 0.1;
@@ -12,10 +12,10 @@ const SCALE_MAX = 5.0;
 const ROTATION_MIN = 0;
 const ROTATION_MAX = 360;
 
+let selectedBlockID = 0;
+
 const BlockToolsSidebar = ({
   activeTab,
-  blockTypes,
-  currentBlockType,
   customBlocks,
   setActiveTab,
   setCustomBlocks,
@@ -45,14 +45,16 @@ const BlockToolsSidebar = ({
 
     // Update the tab switching logic
   const handleTabChange = (newTab) => {
-
     // Reset current block type to default block when switching to blocks tab
     if (newTab === "blocks") {
         setCurrentBlockType(blockTypes[0]);
     }
-    
+    else if (newTab === "environment") {
+      setCurrentBlockType(environmentModels[0]);
+    }
     setActiveTab(newTab);
   };
+
 
   const handleDeleteCustomBlock = async (blockType) => {
     const confirmMessage = `Deleting "${blockType.name}" will remove any block of this type from the scene and CANNOT BE UNDONE! Are you sure you want to proceed?`;
@@ -105,11 +107,25 @@ const BlockToolsSidebar = ({
   };
 
   const handleEnvironmentSelect = (envType) => {
+    console.log("Environment selected:", envType);
     setCurrentBlockType({
       ...envType,
       isEnvironment: true
     });
+    selectedBlockID = envType.id;
   };
+
+  const handleBlockSelect = (blockType) => {
+    console.log("Block selected:", blockType);
+    setCurrentBlockType({
+      ...blockType,
+      isEnvironment: false
+    });
+    selectedBlockID = blockType.id;
+  };
+
+
+
 
   const handleDrop = async (e) => {
     e.preventDefault();
@@ -232,9 +248,9 @@ const BlockToolsSidebar = ({
                 <BlockButton
                   key={blockType.id}
                   blockType={blockType}
-                  isSelected={blockType.id === currentBlockType?.id}
+                  isSelected={selectedBlockID === blockType.id}
                   onSelect={(block) => {
-                    setCurrentBlockType(block);
+                    handleBlockSelect(block);
                     localStorage.setItem("selectedBlock", block.id);
                   }}
                   onDelete={handleDeleteCustomBlock}
@@ -248,9 +264,9 @@ const BlockToolsSidebar = ({
                 <BlockButton
                   key={blockType.id}
                   blockType={blockType}
-                  isSelected={blockType.id === currentBlockType?.id}
+                  isSelected={selectedBlockID === blockType.id}
                   onSelect={(block) => {
-                    setCurrentBlockType(block);
+                    handleBlockSelect(block);
                     localStorage.setItem("selectedBlock", block.id);
                   }}
                   onDelete={handleDeleteCustomBlock}
@@ -267,10 +283,14 @@ const BlockToolsSidebar = ({
                 <EnvironmentButton
                   key={envType.id}
                   envType={envType}
-                  isSelected={envType.id === currentBlockType?.id}
-                  onSelect={handleEnvironmentSelect}
+                  isSelected={selectedBlockID === envType.id}
+                  onSelect={(envType) => {
+                    handleEnvironmentSelect(envType);
+                    localStorage.setItem("selectedBlock", envType.id);
+                  }}
                   onDelete={handleDeleteEnvironmentModel}
                 />
+
               ))}
               <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left", marginTop: "10px" }}>
                 Custom Environment Objects (ID: 300+)
@@ -279,8 +299,11 @@ const BlockToolsSidebar = ({
                 <EnvironmentButton
                   key={envType.id}
                   envType={envType}
-                  isSelected={envType.id === currentBlockType?.id}
-                  onSelect={handleEnvironmentSelect}
+                  isSelected={selectedBlockID === envType.id}
+                  onSelect={(envType) => {
+                    handleEnvironmentSelect(envType);
+                    localStorage.setItem("selectedBlock", envType.id);
+                  }}
                   onDelete={handleDeleteEnvironmentModel}
                 />
               ))}
