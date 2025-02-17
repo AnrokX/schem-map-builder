@@ -7,6 +7,8 @@ import { playPlaceSound } from "./Sound";
 import { cameraManager } from "./Camera";
 import { DatabaseManager, STORES } from "./DatabaseManager";
 import { UndoRedoManager } from "./UndoRedo";
+import { AXIS_LOCK_THRESHOLD, THRESHOLD_FOR_PLACING } from "./Constants";
+import { SiComsol } from "react-icons/si";
 
 // Modify the blockTypes definition to be a function that can be updated
 let blockTypesArray = (() => {
@@ -73,10 +75,6 @@ export const blockTypes = blockTypesArray;
 
 function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef }) {
 
-	// Constants
-	const AXIS_LOCK_THRESHOLD = 0.5;
-	const THRESHOLD_FOR_PLACING = 10;
-
 	// Scene setup
 	const { camera, scene, raycaster, mouse, gl } = useThree();
 	const meshesInitializedRef = useRef(false);
@@ -99,6 +97,10 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 	const previewMeshRef = useRef(null);
 	const axisLockEnabledRef = useRef(axisLockEnabled);
 	const currentBlockTypeRef = useRef(currentBlockType);
+	const isFirstBlockRef = useRef(true);
+	const modeRef = useRef(mode);
+	const lastPreviewPositionRef = useRef(new THREE.Vector3());
+	const placementSizeRef = useRef(placementSize);
 
 	// state for preview position to force re-render of preview cube when it changes
 	const [previewPosition, setPreviewPosition] = useState(new THREE.Vector3());
@@ -110,7 +112,6 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 
 	/// define buildUpdateTerrain to update the terrain
 	const buildUpdateTerrain = () => {
-
 
 		if (!scene || !meshesInitializedRef.current){
 			console.log("building update terrain: not ready");
@@ -330,6 +331,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		if (event.button === 0) {
 			console.log("Mouse Down");
 			isPlacingRef.current = true;
+			isFirstBlockRef.current = true;
 			currentPlacingYRef.current = previewPositionRef.current.y;
 
 			// Handle initial placement
@@ -339,34 +341,32 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 	};
 
 	const handleBlockPlacement = () => {
-		if (!mode || !isPlacingRef.current) return;
-
-		console.log("handling block placement: called");
+		if (!modeRef.current || !isPlacingRef.current) return;
 
 		// Handle environment models separately
 		if (currentBlockTypeRef.current?.isEnvironment) {
 			environmentBuilderRef.placeEnvironmentModel();
-			console.log("handling block placement: environment model placed");
 			return;
 		}
 
 		const newPlacementPosition = previewPositionRef.current.clone();
 
 		// Get all positions to place/remove blocks
-		const positions = getPlacementPositions(newPlacementPosition, placementSize);
+		console.log("placement size: ", placementSizeRef.current);
+		const positions = getPlacementPositions(newPlacementPosition, placementSizeRef.current);
 		let terrainChanged = false;
 
 		positions.forEach((pos) => {
 			const key = `${pos.x},${pos.y},${pos.z}`;
 
-			if (mode === "add") {
+			console.log("handling block placement: Mode is", modeRef.current);
+			if (modeRef.current === "add") {
 				// Only place if there isn't already a block here
 				if (!terrainRef.current[key]) {
 					terrainRef.current[key] = { ...currentBlockTypeRef.current };
 					terrainChanged = true;
-					console.log("handling block placement: adding block");
 				}
-			} else if (mode === "remove") {
+			} else if (modeRef.current === "remove") {
 				if (terrainRef.current[key]) {
 					delete terrainRef.current[key];
 					terrainChanged = true;
@@ -375,7 +375,6 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		});
 
 		if (terrainChanged) {
-			console.log("handling block placement: terrain changed");
 			buildUpdateTerrain();
 			totalBlocksRef.current = Object.keys(terrainRef.current).length;
 		}
@@ -475,7 +474,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 
 		if (!currentBlockTypeRef?.current?.isEnvironment) {
 			/// calculate grid position based on intersection, mode, and intersection normal
-			let gridPosition = calculateGridPosition(intersection, mode, intersection.normal);
+			let gridPosition = calculateGridPosition(intersection, modeRef.current, intersection.normal);
 			if (axisLockEnabled && lockedAxisRef.current && placementStartPosition.current) {
 				gridPosition = applyAxisLock(gridPosition, placementStartPosition.current, lockedAxisRef.current);
 			}
@@ -484,18 +483,36 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 			if (isPlacingRef.current) {
 				gridPosition.y = currentPlacingYRef.current;
 			}
+
+			// Check if we've moved far enough from the last preview position
+			const distance = lastPreviewPositionRef.current.distanceTo(intersection.point);
+
+			/// check if its the first block, and if it is, skip the threshold check
+			if (isFirstBlockRef.current) {
+				isFirstBlockRef.current = false;
+			}
+			else if (distance < THRESHOLD_FOR_PLACING) {
+				return;
+			}
+
 			/// set preview position to grid position
 			previewPositionRef.current = gridPosition;
-			setPreviewPosition(gridPosition);
+			lastPreviewPositionRef.current.copy(previewPositionRef.current);
+			setPreviewPosition(previewPositionRef.current);
 		} else {
+			/// we dont need to check if the distance is less than the threshold for placing
+			/// because environment objects arent placed on the grid
+
 			/// set preview position to intersection point
 			previewPositionRef.current = intersection.point;
+			lastPreviewPositionRef.current.copy(intersection.point);
 			setPreviewPosition(intersection.point);
 		}
 
 		/// Instead of forcing re-render with setPreviewUpdate,
 		// directly update the preview mesh if needed
-		if (previewMeshRef.current) {
+		if (previewMeshRef.current){
+
 			previewMeshRef.current.position.copy(previewPositionRef.current);
 			previewMeshRef.current.updateMatrix();
 		}
@@ -716,6 +733,19 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		updateGridSize(gridSize);
 	}, [gridSize]);
 
+	// Add this effect to disable frustum culling
+	useEffect(() => {
+		// Disable frustum culling on camera
+		camera.frustumCulled = false;
+		
+		// Disable frustum culling on all scene objects
+		scene.traverse((object) => {
+			if (object.isMesh || object.isInstancedMesh) {
+				object.frustumCulled = false;
+			}
+		});
+	}, [camera, scene]);
+
 	// Initialize instanced meshes
 	useEffect(() => {
 		let mounted = true;
@@ -802,6 +832,21 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		};
 	}, [scene]); // Empty dependency array means this only runs on unmount
 
+	// effect to update current block type reference when the prop changes
+	useEffect(() => {
+		currentBlockTypeRef.current = currentBlockType;
+	}, [currentBlockType]);
+
+	// Add this effect to update the mode ref when the prop changes
+	useEffect(() => {
+		modeRef.current = mode;
+	}, [mode]);
+
+	// Add this effect to update the ref when placementSize changes
+	useEffect(() => {
+		placementSizeRef.current = placementSize;
+	}, [placementSize]);
+
 	//// HTML Return Render
 	return (
 		<>
@@ -878,16 +923,16 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 				/>
 			))}
 
-			{previewPosition && (mode === "add" || mode === "remove") && (
+			{previewPosition && (modeRef.current === "add" || modeRef.current === "remove") && (
 				<group>
-					{getPlacementPositions(previewPosition, placementSize).map((pos, index) => (
+					{getPlacementPositions(previewPosition, placementSizeRef.current).map((pos, index) => (
 						<group
 							key={index}
 							position={[pos.x, pos.y, pos.z]}>
 							<mesh renderOrder={2}>
 								<boxGeometry args={[1.02, 1.02, 1.02]} />
 								<meshPhongMaterial
-									color={mode === "add" ? "green" : "red"}
+									color={modeRef.current === "add" ? "green" : "red"}
 									opacity={0.4}
 									transparent={true}
 									depthWrite={false}
