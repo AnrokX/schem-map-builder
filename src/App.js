@@ -36,7 +36,9 @@ function App() {
   const [scene, setScene] = useState(null);
   const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
   const [gridSize, setGridSize] = useState(100);
+  const [currentPreviewPosition, setCurrentPreviewPosition] = useState(null);
   const environmentBuilderRef = useRef(null);
+  const terrainBuilderRef = useRef(null);
 
   /// this listens for the state change of the block type and updates the current block type
   const handleBlockTypeChange = (newBlockType) => {
@@ -80,6 +82,7 @@ function App() {
 
       <Canvas shadows className="canvas-container">
         <TerrainBuilder
+          ref={terrainBuilderRef}
           setAppJSTerrainState={setTerrainState}
           currentBlockType={currentBlockType}
           mode={mode}
@@ -98,17 +101,17 @@ function App() {
           totalEnvironmentObjects={totalEnvironmentObjects}
           gridSize={gridSize}
           environmentBuilderRef={environmentBuilderRef}
+          previewPositionToAppJS={setCurrentPreviewPosition}
         />
-        {scene && (
-          <EnvironmentBuilder
-            ref={environmentBuilderRef}
-            scene={scene}
-            currentBlockType={currentBlockType}
-            mode={mode}
-            onTotalObjectsChange={setTotalEnvironmentObjects}
-            placementSize={placementSize}
-          />
-        )}
+        <EnvironmentBuilder
+          ref={environmentBuilderRef}
+          scene={scene}
+          currentBlockType={currentBlockType}
+          mode={mode}
+          onTotalObjectsChange={setTotalEnvironmentObjects}
+          placementSize={placementSize}
+          previewPositionFromAppJS={currentPreviewPosition}
+        />
       </Canvas>
 
       <DebugInfo 
@@ -118,6 +121,7 @@ function App() {
       />
 
       <ToolBar
+        terrainBuilderRef={terrainBuilderRef}
         mode={mode}
         handleModeChange={setMode}
         axisLockEnabled={axisLockEnabled}

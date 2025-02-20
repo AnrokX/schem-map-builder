@@ -26,6 +26,7 @@ import { version } from "../Constants";
 import { UndoRedoManager } from "../UndoRedo";
 
 const ToolBar = ({
+  terrainBuilderRef,
   mode,
   handleModeChange,
   axisLockEnabled,
@@ -154,17 +155,12 @@ const ToolBar = ({
     setShowBorderModal(false);
   };
 
-  const handleClearMap = async () => {
-    if (window.confirm("Are you sure you want to clear the entire map?")) {
-      const db = new DatabaseManager();
-      await db.clearStore(STORES.ENVIRONMENT_STORE);
-      window.location.reload();
-    }
+  const handleClearMap = () => {
+    terrainBuilderRef.current?.clearMap();
   };
 
-  const generateTerrain = async () => {
-    const { width, length, height, scale, roughness, clearMap } =
-      terrainSettings;
+  const generateTerrain = () => {
+    const { width, length, height, scale, roughness, clearMap } = terrainSettings;
 
     // Validate settings
     if (width <= 0 || length <= 0 || height <= 0 || scale <= 0) {
@@ -174,8 +170,13 @@ const ToolBar = ({
 
     // Clear existing terrain if requested
     if (clearMap) {
-      const db = new DatabaseManager();
-      await db.clearStore(STORES.ENVIRONMENT_STORE);
+      DatabaseManager.clearStore(STORES.ENVIRONMENT)
+      .then(() => {
+        DatabaseManager.clearStore(STORES.TERRAIN)
+          .then(() => {
+            setTerrainState({});
+          });
+      });
     }
 
     // Generate noise map
@@ -219,7 +220,7 @@ const ToolBar = ({
     return context.keys().map(key => key.replace('./', ''));
   };
 
-  const handleExport = async (terrain) => {
+  const handleExport = (terrain) => {
     try {
       if (!terrain || Object.keys(terrain).length === 0) {
         alert("No map found to export!");
@@ -235,132 +236,122 @@ const ToolBar = ({
       const soundsFolder = assetsFolder.folder("sounds");
       const skyboxesFolder = assetsFolder.folder("skyboxes");
 
-      // Add custom GLTF models from IndexedDB - Add logging to debug
-      const customModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models') || [];
-      console.log('Custom models to export:', customModels);
-      
-      for (const model of customModels) {
-        try {
-          if (!model.data) {
-            console.warn(`No data found for model ${model.name}`);
-            continue;
-          }
+      // Add custom GLTF models from IndexedDB
+      DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models')
+        .then(customModels => {
+          customModels = customModels || [];
+          console.log('Custom models to export:', customModels);
           
-          // Convert ArrayBuffer to blob
-          const blob = new Blob([model.data], { type: 'model/gltf+json' });
-          console.log(`Adding model to zip: ${model.name}.gltf`);
-          
-          // Add to zip in the models/environment directory
-          await modelsFolder.file(`${model.name}.gltf`, blob);
-        } catch (error) {
-          console.error(`Failed to add model ${model.name}:`, error);
-          continue;
-        }
-      }
-
-      // 1. Create and add the map JSON
-      const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-      
-      const simplifiedTerrain = Object.entries(terrain).reduce(
-        (acc, [key, value]) => {
-          if (key.split(",").length === 3) {
-            acc[key] = value.id;
+          for (const model of customModels) {
+            if (!model.data) {
+              console.warn(`No data found for model ${model.name}`);
+              continue;
+            }
+            
+            const blob = new Blob([model.data], { type: 'model/gltf+json' });
+            console.log(`Adding model to zip: ${model.name}.gltf`);
+            modelsFolder.file(`${model.name}.gltf`, blob);
           }
-          return acc;
-        },
-        {}
-      );
 
-      const allBlockTypes = getBlockTypes();
-      
-      const exportData = {
-        blockTypes: Array.from(
-          new Map(
-            allBlockTypes.map(block => [
-              block.id,
-              {
-                id: block.id,
-                name: block.name,
-                textureUri: block.isMultiTexture
-                  ? `blocks/${block.name}`
-                  : `blocks/${block.name}.png`,
-                isCustom: block.isCustom || false
+          return DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
+        })
+        .then(environmentObjects => {
+          environmentObjects = environmentObjects || [];
+          
+          const simplifiedTerrain = Object.entries(terrain).reduce(
+            (acc, [key, value]) => {
+              if (key.split(",").length === 3) {
+                acc[key] = value.id;
               }
-            ])
-          ).values()
-        ),
-        blocks: simplifiedTerrain,
-        entities: environmentObjects.reduce((acc, obj) => {
-          const entityType = environmentModels.find(model => 
-            model.modelUrl === obj.modelUrl
+              return acc;
+            },
+            {}
           );
+
+          const allBlockTypes = getBlockTypes();
           
-          if (entityType) {
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromEuler(new THREE.Euler(
-              obj.rotation.x,
-              obj.rotation.y,
-              obj.rotation.z
-            ));
+          const exportData = {
+            blockTypes: Array.from(
+              new Map(
+                allBlockTypes.map(block => [
+                  block.id,
+                  {
+                    id: block.id,
+                    name: block.name,
+                    textureUri: block.isMultiTexture
+                      ? `blocks/${block.name}`
+                      : `blocks/${block.name}.png`,
+                    isCustom: block.isCustom || false
+                  }
+                ])
+              ).values()
+            ),
+            blocks: simplifiedTerrain,
+            entities: environmentObjects.reduce((acc, obj) => {
+              const entityType = environmentModels.find(model => 
+                model.modelUrl === obj.modelUrl
+              );
+              
+              if (entityType) {
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromEuler(new THREE.Euler(
+                  obj.rotation.x,
+                  obj.rotation.y,
+                  obj.rotation.z
+                ));
 
-            const modelUri = entityType.isCustom 
-              ? `models/environment/${entityType.name}.gltf`
-              : obj.modelUrl.replace('assets/', '');
+                const modelUri = entityType.isCustom 
+                  ? `models/environment/${entityType.name}.gltf`
+                  : obj.modelUrl.replace('assets/', '');
 
-            // Calculate adjusted Y position
-            const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-            const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-            const adjustedY = obj.position.y + 0.5 + verticalOffset;
+                // Calculate adjusted Y position
+                const boundingBoxHeight = entityType.boundingBoxHeight || 1;
+                const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
+                const adjustedY = obj.position.y + 0.5 + verticalOffset;
 
-            // Use adjusted Y in the key
-            const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
+                // Use adjusted Y in the key
+                const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
 
-            acc[key] = {
-              modelUri: modelUri,
-              modelLoopedAnimations: entityType.animations || ["idle"],
-              modelScale: obj.scale.x,
-              name: entityType.name,
-              rigidBodyOptions: {
-                type: "kinematic_velocity",
-                rotation: {
-                  x: quaternion.x,
-                  y: quaternion.y,
-                  z: quaternion.z,
-                  w: quaternion.w
-                }
+                acc[key] = {
+                  modelUri: modelUri,
+                  modelLoopedAnimations: entityType.animations || ["idle"],
+                  modelScale: obj.scale.x,
+                  name: entityType.name,
+                  rigidBodyOptions: {
+                    type: "kinematic_velocity",
+                    rotation: {
+                      x: quaternion.x,
+                      y: quaternion.y,
+                      z: quaternion.z,
+                      w: quaternion.w
+                    }
+                  }
+                };
               }
-            };
-          }
-          return acc;
-        }, {})
-      };
+              return acc;
+            }, {})
+          };
 
-      // Add map JSON to the maps folder
-      mapsFolder.file("terrain.json", JSON.stringify(exportData, null, 2));
-
-      // 2. Add custom block textures from IndexedDB
-      const customBlocks = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, 'blocks') || [];
-      for (const block of customBlocks) {
-        // Convert base64 to blob
-        const base64Data = block.textureUri.split(',')[1];
-        const binaryData = atob(base64Data);
-        const array = new Uint8Array(binaryData.length);
-        for (let i = 0; i < binaryData.length; i++) {
-          array[i] = binaryData.charCodeAt(i);
-        }
-        const blob = new Blob([array], { type: 'image/png' });
-        
-        // Add to zip
-        blocksFolder.file(`${block.name}.png`, blob);
-      }
-
-      // 3. Dynamically add all default assets
-      const addDefaultassets = async () => {
-        try {
-          // Scan assets directory for all files
-          const files = await scanDirectory();
+          mapsFolder.file("terrain.json", JSON.stringify(exportData, null, 2));
+          return DatabaseManager.getData(STORES.CUSTOM_BLOCKS, 'blocks');
+        })
+        .then(customBlocks => {
+          customBlocks = customBlocks || [];
           
-          // Add each file to the zip
+          // Add custom block textures
+          for (const block of customBlocks) {
+            const base64Data = block.textureUri.split(',')[1];
+            const binaryData = atob(base64Data);
+            const array = new Uint8Array(binaryData.length);
+            for (let i = 0; i < binaryData.length; i++) {
+              array[i] = binaryData.charCodeAt(i);
+            }
+            const blob = new Blob([array], { type: 'image/png' });
+            blocksFolder.file(`${block.name}.png`, blob);
+          }
+
+          // Add default assets and generate zip
+          const files = scanDirectory();
           const promises = [];
           for (const filePath of files) {
             const task = new Promise(async (resolve) => {
@@ -396,24 +387,24 @@ const ToolBar = ({
             promises.push(task);
           }
 
-          await Promise.all(promises);
-        } catch (error) {
-          console.error('Error adding default assets:', error);
-          throw error;
-        }
-      };
-
-      await addDefaultassets();
-
-      // 4. Generate and download the zip - Add logging before generating
-      console.log('Folders in zip:', Object.keys(zip.files));
-      const content = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(content);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "hytopia_build_"+ version +"_assets.zip";
-      a.click();
-      URL.revokeObjectURL(url);
+          return Promise.all(promises);
+        })
+        .then(() => {
+          console.log('Folders in zip:', Object.keys(zip.files));
+          return zip.generateAsync({ type: "blob" });
+        })
+        .then(content => {
+          const url = URL.createObjectURL(content);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "hytopia_build_"+ version +"_assets.zip";
+          a.click();
+          URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+          console.error("Error exporting map:", error);
+          alert("Error exporting map. Please try again.");
+        });
 
     } catch (error) {
       console.error("Error exporting map:", error);
@@ -421,99 +412,104 @@ const ToolBar = ({
     }
   };
 
-  const handleExportMap = async (terrain) => {
+  const handleExportMap = (terrain) => {
     try {
       if (!terrain || Object.keys(terrain).length === 0) {
         alert("No map found to export!");
         return;
       }
 
-      // Create the map data structure
-      const environmentObjects = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-      
-      const simplifiedTerrain = Object.entries(terrain).reduce(
-        (acc, [key, value]) => {
-          if (key.split(",").length === 3) {
-            acc[key] = value.id;
-          }
-          return acc;
-        },
-        {}
-      );
-
-      const allBlockTypes = getBlockTypes();
-      
-      const exportData = {
-        blockTypes: Array.from(
-          new Map(
-            allBlockTypes.map(block => [
-              block.id,
-              {
-                id: block.id,
-                name: block.name,
-                textureUri: block.isMultiTexture
-                  ? `blocks/${block.name}`
-                  : `blocks/${block.name}.png`,
-                isCustom: block.isCustom || false
-              }
-            ])
-          ).values()
-        ),
-        blocks: simplifiedTerrain,
-        entities: environmentObjects.reduce((acc, obj) => {
-          const entityType = environmentModels.find(model => 
-            model.modelUrl === obj.modelUrl
-          );
+      DatabaseManager.getData(STORES.ENVIRONMENT, 'current')
+        .then(environmentObjects => {
+          environmentObjects = environmentObjects || [];
           
-          if (entityType) {
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromEuler(new THREE.Euler(
-              obj.rotation.x,
-              obj.rotation.y,
-              obj.rotation.z
-            ));
-
-            const modelUri = entityType.isCustom 
-              ? `models/environment/${entityType.name}.gltf`
-              : obj.modelUrl.replace('assets/', '');
-
-            // Calculate adjusted Y position
-            const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-            const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-            const adjustedY = obj.position.y + 0.5 + verticalOffset;
-
-            // Use adjusted Y in the key
-            const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
-
-            acc[key] = {
-              modelUri: modelUri,
-              modelLoopedAnimations: entityType.animations || ["idle"],
-              modelScale: obj.scale.x,
-              name: entityType.name,
-              rigidBodyOptions: {
-                type: "kinematic_velocity",
-                rotation: {
-                  x: quaternion.x,
-                  y: quaternion.y,
-                  z: quaternion.z,
-                  w: quaternion.w
-                }
+          const simplifiedTerrain = Object.entries(terrain).reduce(
+            (acc, [key, value]) => {
+              if (key.split(",").length === 3) {
+                acc[key] = value.id;
               }
-            };
-          }
-          return acc;
-        }, {})
-      };
+              return acc;
+            },
+            {}
+          );
 
-      // Create and download the JSON file
-      const jsonContent = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([jsonContent], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "terrain.json";
-      a.click();
-      URL.revokeObjectURL(url);
+          const allBlockTypes = getBlockTypes();
+          
+          const exportData = {
+            blockTypes: Array.from(
+              new Map(
+                allBlockTypes.map(block => [
+                  block.id,
+                  {
+                    id: block.id,
+                    name: block.name,
+                    textureUri: block.isMultiTexture
+                      ? `blocks/${block.name}`
+                      : `blocks/${block.name}.png`,
+                    isCustom: block.isCustom || false
+                  }
+                ])
+              ).values()
+            ),
+            blocks: simplifiedTerrain,
+            entities: environmentObjects.reduce((acc, obj) => {
+              const entityType = environmentModels.find(model => 
+                model.modelUrl === obj.modelUrl
+              );
+              
+              if (entityType) {
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromEuler(new THREE.Euler(
+                  obj.rotation.x,
+                  obj.rotation.y,
+                  obj.rotation.z
+                ));
+
+                const modelUri = entityType.isCustom 
+                  ? `models/environment/${entityType.name}.gltf`
+                  : obj.modelUrl.replace('assets/', '');
+
+                // Calculate adjusted Y position
+                const boundingBoxHeight = entityType.boundingBoxHeight || 1;
+                const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
+                const adjustedY = obj.position.y + 0.5 + verticalOffset;
+
+                // Use adjusted Y in the key
+                const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
+
+                acc[key] = {
+                  modelUri: modelUri,
+                  modelLoopedAnimations: entityType.animations || ["idle"],
+                  modelScale: obj.scale.x,
+                  name: entityType.name,
+                  rigidBodyOptions: {
+                    type: "kinematic_velocity",
+                    rotation: {
+                      x: quaternion.x,
+                      y: quaternion.y,
+                      z: quaternion.z,
+                      w: quaternion.w
+                    }
+                  }
+                };
+              }
+              return acc;
+            }, {})
+          };
+
+          const jsonContent = JSON.stringify(exportData, null, 2);
+          const blob = new Blob([jsonContent], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "terrain.json";
+          a.click();
+          URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+          console.error("Error exporting map:", error);
+          alert("Error exporting map. Please try again.");
+        });
 
     } catch (error) {
       console.error("Error exporting map:", error);

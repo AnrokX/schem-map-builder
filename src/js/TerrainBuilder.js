@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, forwardRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -8,7 +8,8 @@ import { cameraManager } from "./Camera";
 import { DatabaseManager, STORES } from "./DatabaseManager";
 import { UndoRedoManager } from "./UndoRedo";
 import { AXIS_LOCK_THRESHOLD, THRESHOLD_FOR_PLACING } from "./Constants";
-import { SiComsol } from "react-icons/si";
+
+let terrainRef = {};
 
 // Modify the blockTypes definition to be a function that can be updated
 let blockTypesArray = (() => {
@@ -73,7 +74,7 @@ export const getBlockTypes = () => blockTypesArray;
 // Export the initial blockTypes for backward compatibility
 export const blockTypes = blockTypesArray;
 
-function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef }) {
+function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToAppJS, currentBlockType, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
 
 	// Scene setup
 	const { camera, scene, raycaster, mouse, gl } = useThree();
@@ -104,6 +105,16 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 
 	// state for preview position to force re-render of preview cube when it changes
 	const [previewPosition, setPreviewPosition] = useState(new THREE.Vector3());
+
+	// Replace lastPlacedBlockRef with a Set to track all recently placed blocks
+	const recentlyPlacedBlocksRef = useRef(new Set());
+
+	/// references for
+	const canvasRectRef = useRef(null);
+	const normalizedMouseRef = useRef(new THREE.Vector2());
+	const tempVectorRef = useRef(new THREE.Vector3());
+	const tempVec2Ref = useRef(new THREE.Vector2());
+	const tempVec2_2Ref = useRef(new THREE.Vector2());
 
 	//* TERRAIN UPDATE FUNCTIONS *//
 	//* TERRAIN UPDATE FUNCTIONS *//
@@ -175,18 +186,15 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		// send terrain state to app.js so other components can use it
 		setAppJSTerrainState(terrainRef.current);
 
-		console.log("finishedbuilding update terrain");
-
 		// Update block counts
 		blockCountsRef.current = blockCountsByType;
 		totalBlocksRef.current = Object.keys(terrainRef.current).length;
-		
-		// Only update UI when needed (could be on a timer or specific events)
-		setDebugInfo({
-			preview: previewPositionRef.current,
-			lockedAxis: axisLockEnabled ? lockedAxisRef.current : "None",
-			totalBlocks: totalBlocksRef.current,
-		});
+
+		updateDebugInfo();
+
+		// Save terrain to storage
+		DatabaseManager.saveData(STORES.TERRAIN, "current", terrainRef.current)
+			.catch(error => console.error("Error saving terrain:", error));
 	};
 
 	/// Geometry and Material Helper Functions ///
@@ -333,6 +341,15 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 			isPlacingRef.current = true;
 			isFirstBlockRef.current = true;
 			currentPlacingYRef.current = previewPositionRef.current.y;
+			
+			// Clear recently placed blocks on mouse down
+			recentlyPlacedBlocksRef.current.clear();
+
+			// Save the initial state for undo/redo
+			placementStartState.current = {
+				terrain: { ...terrainRef.current },
+				environment: DatabaseManager.getData(STORES.ENVIRONMENT, "current") || []
+			};
 
 			// Handle initial placement
 			updatePreviewPosition();
@@ -344,27 +361,31 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		if (!modeRef.current || !isPlacingRef.current) return;
 
 		// Handle environment models separately
-		if (currentBlockTypeRef.current?.isEnvironment) {
-			environmentBuilderRef.placeEnvironmentModel();
+		// we only place one environment model at a time
+		if (currentBlockTypeRef.current?.isEnvironment && isFirstBlockRef.current === true) {
+			environmentBuilderRef.current.placeEnvironmentModel();
+			isFirstBlockRef.current = false;
+			return;
+		}
+		else if (currentBlockTypeRef.current?.isEnvironment && isFirstBlockRef.current === false) {
 			return;
 		}
 
 		const newPlacementPosition = previewPositionRef.current.clone();
 
 		// Get all positions to place/remove blocks
-		console.log("placement size: ", placementSizeRef.current);
 		const positions = getPlacementPositions(newPlacementPosition, placementSizeRef.current);
 		let terrainChanged = false;
 
 		positions.forEach((pos) => {
 			const key = `${pos.x},${pos.y},${pos.z}`;
-
-			console.log("handling block placement: Mode is", modeRef.current);
 			if (modeRef.current === "add") {
 				// Only place if there isn't already a block here
 				if (!terrainRef.current[key]) {
 					terrainRef.current[key] = { ...currentBlockTypeRef.current };
 					terrainChanged = true;
+					// Add to recently placed blocks
+					recentlyPlacedBlocksRef.current.add(key);
 				}
 			} else if (modeRef.current === "remove") {
 				if (terrainRef.current[key]) {
@@ -393,11 +414,21 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		let rayHitShadowPlane = null;
 
 		for (const intersect of raycastIntersects) {
+			// Skip if this is a recently placed block position
 			if (intersect.object.isInstancedMesh) {
-				rayHitBlock = intersect;
-				break;
-			}
-			if (intersect.object === shadowPlaneRef.current) {
+				const blockPos = new THREE.Vector3().copy(intersect.point).sub(intersect.face.normal.multiplyScalar(0.5));
+				const roundedPos = new THREE.Vector3(
+					Math.round(blockPos.x),
+					Math.round(blockPos.y),
+					Math.round(blockPos.z)
+				);
+				
+				const posKey = `${roundedPos.x},${roundedPos.y},${roundedPos.z}`;
+				if (!recentlyPlacedBlocksRef.current.has(posKey)) {
+					rayHitBlock = intersect;
+					break;
+				}
+			} else if (intersect.object === shadowPlaneRef.current) {
 				rayHitShadowPlane = intersect;
 			}
 		}
@@ -452,67 +483,77 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 
 	// Function to update preview position based on mouse position
 	const updatePreviewPosition = () => {
-		/// get canvas to get mouse position with respect to the canvas
-		const canvas = gl.domElement;
-		const rect = canvas.getBoundingClientRect();
+		// Cache the canvas rect calculation outside the update loop
+		// since it rarely changes
+		if (!canvasRectRef.current) {
+			canvasRectRef.current = gl.domElement.getBoundingClientRect();
+		}
 
-		/// normalize mouse position to the canvas
-		const normalizedMouse = {
-			x: ((((mouse.x + 1) / 2) * rect.width - rect.width / 2) / rect.width) * 2,
-			y: ((((mouse.y + 1) / 2) * rect.height - rect.height / 2) / rect.height) * 2,
-		};
+		// Use cached rect
+		const rect = canvasRectRef.current;
 
-		/// set raycaster to the normalized mouse position and camera
-		raycaster.setFromCamera(normalizedMouse, camera);
+		// Reuse vectors instead of creating new ones
+		normalizedMouseRef.current.x = ((((mouse.x + 1) / 2) * rect.width - rect.width / 2) / rect.width) * 2;
+		normalizedMouseRef.current.y = ((((mouse.y + 1) / 2) * rect.height - rect.height / 2) / rect.height) * 2;
+
+		// Use the same raycaster instead of setting from scratch
+		raycaster.ray.origin.copy(camera.position);
+		raycaster.ray.direction
+			.set(normalizedMouseRef.current.x, normalizedMouseRef.current.y, 0.5)
+			.unproject(camera)
+			.sub(camera.position)
+			.normalize();
+
 		const intersection = getRaycastIntersection(raycaster);
 
-		/// if no intersection, set preview position to 0,0,0
 		if (!intersection) {
-			previewPositionRef.current = new THREE.Vector3(0, 0, 0);
+			previewPositionRef.current.set(0, 0, 0);
 			return;
 		}
 
 		if (!currentBlockTypeRef?.current?.isEnvironment) {
-			/// calculate grid position based on intersection, mode, and intersection normal
-			let gridPosition = calculateGridPosition(intersection, modeRef.current, intersection.normal);
+			// Reuse vector for grid position calculation
+			tempVectorRef.current.copy(intersection.point);
+			if (modeRef.current === "remove") {
+				tempVectorRef.current.x = Math.round(tempVectorRef.current.x - intersection.normal.x * 5);
+				tempVectorRef.current.y = Math.round(tempVectorRef.current.y - intersection.normal.y * 5);
+				tempVectorRef.current.z = Math.round(tempVectorRef.current.z - intersection.normal.z * 5);
+			} else {
+				tempVectorRef.current.x = Math.round(tempVectorRef.current.x);
+				tempVectorRef.current.y = Math.round(tempVectorRef.current.y);
+				tempVectorRef.current.z = Math.round(tempVectorRef.current.z);
+			}
+
 			if (axisLockEnabled && lockedAxisRef.current && placementStartPosition.current) {
-				gridPosition = applyAxisLock(gridPosition, placementStartPosition.current, lockedAxisRef.current);
+				applyAxisLock(tempVectorRef.current, placementStartPosition.current, lockedAxisRef.current);
 			}
 
-			/// if mouse is down, set grid position y to current placing y
 			if (isPlacingRef.current) {
-				gridPosition.y = currentPlacingYRef.current;
+				tempVectorRef.current.y = currentPlacingYRef.current;
 			}
 
-			// Check if we've moved far enough from the last preview position
-			const distance = lastPreviewPositionRef.current.distanceTo(intersection.point);
-
-			/// check if its the first block, and if it is, skip the threshold check
-			if (isFirstBlockRef.current) {
-				isFirstBlockRef.current = false;
-			}
-			else if (distance < THRESHOLD_FOR_PLACING) {
-				return;
+			// Check movement threshold using cached vectors
+			if (!isFirstBlockRef.current && isPlacingRef.current) {
+				tempVec2Ref.current.set(lastPreviewPositionRef.current.x, lastPreviewPositionRef.current.z);
+				tempVec2_2Ref.current.set(intersection.point.x, intersection.point.z);
+				if (tempVec2Ref.current.distanceTo(tempVec2_2Ref.current) < THRESHOLD_FOR_PLACING) {
+					return;
+				}
 			}
 
-			/// set preview position to grid position
-			previewPositionRef.current = gridPosition;
-			lastPreviewPositionRef.current.copy(previewPositionRef.current);
+			previewPositionRef.current.copy(tempVectorRef.current);
+			lastPreviewPositionRef.current.copy(intersection.point);
 			setPreviewPosition(previewPositionRef.current);
+			updateDebugInfo();
 		} else {
-			/// we dont need to check if the distance is less than the threshold for placing
-			/// because environment objects arent placed on the grid
-
-			/// set preview position to intersection point
-			previewPositionRef.current = intersection.point;
+			previewPositionRef.current.copy(intersection.point);
 			lastPreviewPositionRef.current.copy(intersection.point);
 			setPreviewPosition(intersection.point);
+			previewPositionToAppJS(intersection.point);
+			updateDebugInfo();
 		}
 
-		/// Instead of forcing re-render with setPreviewUpdate,
-		// directly update the preview mesh if needed
-		if (previewMeshRef.current){
-
+		if (previewMeshRef.current) {
 			previewMeshRef.current.position.copy(previewPositionRef.current);
 			previewMeshRef.current.updateMatrix();
 		}
@@ -526,6 +567,8 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 	const handleMouseUp = (event) => {
 		if (event.button === 0) {
 			isPlacingRef.current = false;
+			// Clear recently placed blocks
+			recentlyPlacedBlocksRef.current.clear();
 
 			if (placementStartState.current) {
 				const currentState = {
@@ -685,7 +728,6 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		if (gridRef.current) {
 			// Get grid size from localStorage or use default value
 			const savedGridSize = parseInt(localStorage.getItem("gridSize"), 10) || newGridSize;
-			console.log("Updating grid size from value:", newGridSize, "to value:", savedGridSize);
 
 			if (gridRef.current.geometry) {
 				gridRef.current.geometry.dispose();
@@ -701,6 +743,30 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 			}
 		}
 	};
+
+	const updateDebugInfo = () => {
+		setDebugInfo({
+			preview: previewPositionRef.current,
+			lockedAxis: axisLockEnabled ? lockedAxisRef.current : "None",
+			totalBlocks: totalBlocksRef.current,
+		});
+	}
+
+	const clearMap = () => {
+		if (window.confirm("Are you sure you want to clear the entire map?")) {
+			DatabaseManager.clearStore(STORES.ENVIRONMENT)
+				.then(() => {
+				// Trigger terrain update after clearing
+				environmentBuilderRef.current.clearEnvironments();
+				DatabaseManager.clearStore(STORES.TERRAIN)
+					.then(() => {
+						terrainRef.current = {};
+						buildUpdateTerrain();
+						totalBlocksRef.current = 0;
+					});
+				});
+		}
+	}
 
 	/// Mouse move update preview position and handle block placement if mouse is down
 	useEffect(() => {
@@ -746,7 +812,7 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 		});
 	}, [camera, scene]);
 
-	// Initialize instanced meshes
+	// Initialize instanced meshes and load terrain from IndexedDB
 	useEffect(() => {
 		let mounted = true;
 
@@ -790,8 +856,15 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 					if (savedTerrain) {
 						terrainRef.current = savedTerrain;
 						console.log("Terrain loaded from IndexedDB");
+						// Move these calls inside the callback after terrain is loaded
+						buildUpdateTerrain();
+						totalBlocksRef.current = Object.keys(terrainRef.current).length;
 					} else {
 						console.log("No terrain found in IndexedDB");
+						// Initialize with empty terrain
+						terrainRef.current = {};
+						buildUpdateTerrain();
+						totalBlocksRef.current = 0;
 					}
 
 					setPageIsLoaded(true);
@@ -799,12 +872,12 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 				.catch((error) => {
 					console.error("Error loading terrain:", error);
 					if (mounted) {
+						terrainRef.current = {};
+						buildUpdateTerrain();
+						totalBlocksRef.current = 0;
 						setPageIsLoaded(true);
 					}
 				});
-
-			buildUpdateTerrain();
-			totalBlocksRef.current = Object.keys(terrainRef.current).length;
 		}
 
 		initialize();
@@ -846,6 +919,33 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 	useEffect(() => {
 		placementSizeRef.current = placementSize;
 	}, [placementSize]);
+
+	/// build update terrain when the terrain state changes
+	useEffect(() => {
+		buildUpdateTerrain();
+	}, [terrainRef.current]);
+
+	/// onSceneReady send the scene to App.js via a setter
+	useEffect(() => {
+		if (scene && onSceneReady) {
+			onSceneReady(scene);
+		}
+	}, [scene, onSceneReady]);
+
+	// Expose buildUpdateTerrain and clearMap via ref
+	React.useImperativeHandle(ref, () => ({
+		buildUpdateTerrain,
+		clearMap
+	}));
+
+	// Add resize listener to update canvasRect
+	useEffect(() => {
+		const handleResize = () => {
+			canvasRectRef.current = null; // Force recalculation on next update
+		};
+		window.addEventListener('resize', handleResize);
+		return () => window.removeEventListener('resize', handleResize);
+	}, []);
 
 	//// HTML Return Render
 	return (
@@ -955,4 +1055,5 @@ function TerrainBuilder({ setAppJSTerrainState, currentBlockType, mode, setDebug
 	);
 }
 
-export default TerrainBuilder;
+// Convert to forwardRef
+export default forwardRef(TerrainBuilder);

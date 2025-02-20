@@ -8,4 +8,4 @@ export const UNDO_THRESHOLD = 60;
 
 // Terrain builder palcement/movement constants
 export const AXIS_LOCK_THRESHOLD = 0.5;
-export const THRESHOLD_FOR_PLACING = 0.9;
+export const THRESHOLD_FOR_PLACING = 0.5;

@@ -44,8 +44,16 @@ export class DatabaseManager {
     });
   }
 
+  /// provides the existing connection or opens a new one if it doesn't exist
+  static async getConnection() {
+    if (!this.dbConnection || this.dbConnection.closed) {
+      this.dbConnection = await this.openDB();
+    }
+    return this.dbConnection;
+  }
+
   static async saveData(storeName, key, data) {
-    const db = await this.openDB();
+    const db = await this.getConnection();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(storeName, 'readwrite');
       const store = transaction.objectStore(storeName);
@@ -57,7 +65,7 @@ export class DatabaseManager {
   }
 
   static async getData(storeName, key) {
-    const db = await this.openDB();
+    const db = await this.getConnection();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(storeName, 'readonly');
       const store = transaction.objectStore(storeName);
@@ -69,7 +77,7 @@ export class DatabaseManager {
   }
 
   static async deleteData(storeName, key) {
-    const db = await this.openDB();
+    const db = await this.getConnection();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(storeName, 'readwrite');
       const store = transaction.objectStore(storeName);
@@ -82,7 +90,7 @@ export class DatabaseManager {
 
   static async clearStore(storeName) {
     try {
-      const db = await this.openDB();
+      const db = await this.getConnection();
       
       // Check if store exists
       if (!db.objectStoreNames.contains(storeName)) {

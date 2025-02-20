@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { DatabaseManager, STORES } from './DatabaseManager';
-import { MAX_UNDO_STATES } from './Constants';
 import { UndoRedoManager } from './UndoRedo';
 
 export const environmentModels = (() => {
@@ -49,29 +48,17 @@ export const environmentModels = (() => {
   }
 })();
 
-export const EnvironmentBuilder = forwardRef(({ 
-  scene, 
-  currentBlockType, 
-  mode, 
-  onTotalObjectsChange,
-  placementSize = 'single',
-  placementSettings = {
-    randomScale: false,
-    randomRotation: false,
-    minScale: 0.5,
-    maxScale: 1.5,
-    minRotation: 0,
-    maxRotation: 360,
-    scale: 1.0,
-    rotation: 0
-  }
-}, ref) => {
+const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType, mode, onTotalObjectsChange, placementSize = 'single', placementSettings = {randomScale: false, randomRotation: false, minScale: 0.5, maxScale: 1.5, minRotation: 0, maxRotation: 360, scale: 1.0, rotation: 0}}, ref) => {
+
     // Convert class properties to refs and state
     const loader = useRef(new GLTFLoader());
-    const [placeholderMesh, setPlaceholderMesh] = useState(null);
+    const placeholderMeshRef = useRef(null);
     const loadedModels = useRef(new Map());
     const instancedMeshes = useRef(new Map());
     const positionOffset = useRef(new THREE.Vector3(0, -0.5, 0));
+    const placementSizeRef = useRef(placementSize);
+
+    /// state for total environment objects
     const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
 
     // Convert class methods to functions
@@ -86,34 +73,39 @@ export const EnvironmentBuilder = forwardRef(({
             return loadedModels.current.get(modelToLoadUrl);
         }
 
-        // Properly construct the URL based on the input
+        // Properly construct the URL
         let fullUrl;
         if (modelToLoadUrl.startsWith('blob:')) {
             fullUrl = modelToLoadUrl;
         } else if (modelToLoadUrl.startsWith('http')) {
             fullUrl = modelToLoadUrl;
         } else {
-            // Remove any leading slashes and ensure proper path construction
             const cleanPath = modelToLoadUrl.replace(/^\/+/, '');
             fullUrl = `${process.env.PUBLIC_URL}/${cleanPath}`;
         }
 
-        return new Promise((resolve, reject) => {
-            loader.current.load(
-                fullUrl,
-                (gltf) => {
-                    loadedModels.current.set(modelToLoadUrl, gltf);
-                    resolve(gltf);
-                },
-                (progress) => {
-                    //console.log(`Loading ${fullUrl}: ${(progress.loaded / progress.total * 100)}%`);
-                },
-                (error) => {
-                    console.error('Error loading model:', fullUrl, error);
-                    reject(error);
-                }
-            );
-        });
+        try {
+            const response = await fetch(fullUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to load model: ${fullUrl}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            
+            return new Promise((resolve, reject) => {
+                loader.current.parse(arrayBuffer, '', 
+                    (gltf) => {
+                        loadedModels.current.set(modelToLoadUrl, gltf);
+                        resolve(gltf);
+                    },
+                    (error) => reject(error)
+                );
+            });
+
+        } catch (error) {
+            console.error('Error loading model:', fullUrl, error);
+            return null;
+        }
     };
 
     const getObjectByPosition = (position) => {
@@ -125,79 +117,50 @@ export const EnvironmentBuilder = forwardRef(({
         );
       }
 
-    const loadCustomModelsFromDB = async () => {
+    const preloadModels = async () => {
+        // Load custom models from DB first
         try {
             const customModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models');
-            if (!customModels) return;
-            
-            for (const model of customModels) {
-                const blob = new Blob([model.data], { type: 'model/gltf+json' });
-                const fileUrl = URL.createObjectURL(blob);
-                
-                const newEnvironmentModel = {
-                    id: Math.max(...environmentModels.map(model => model.id), 199) + 1,
-                    name: model.name,
-                    modelUrl: fileUrl,
-                    isEnvironment: true,
-                    isCustom: true,
-                    animations: ['idle']
-                };
-                
-                environmentModels.push(newEnvironmentModel);
+            if (customModels) {
+                for (const model of customModels) {
+                    const blob = new Blob([model.data], { type: 'model/gltf+json' });
+                    const fileUrl = URL.createObjectURL(blob);
+                    
+                    const newEnvironmentModel = {
+                        id: Math.max(...environmentModels.map(model => model.id), 199) + 1,
+                        name: model.name,
+                        modelUrl: fileUrl,
+                        isEnvironment: true,
+                        isCustom: true,
+                        animations: ['idle']
+                    };
+                    
+                    environmentModels.push(newEnvironmentModel);
+                }
             }
+
+            // Load and setup all models
+            await Promise.all(environmentModels.map(async (model) => {
+                try {
+                    const gltf = await loadModel(model.modelUrl);
+                    if (gltf) {
+                        setupInstancedMesh(model, gltf);
+                    }
+                } catch (error) {
+                    console.error(`Error preloading model ${model.name}:`, error);
+                }
+            }));
+
+            // Load saved environment after models are loaded
+            await loadSavedEnvironment();
         } catch (error) {
             console.error('Error loading custom models from DB:', error);
         }
-    };
 
-    const preloadModels = async () => {
-        
-        // First load custom models
-        await loadCustomModelsFromDB();
-        
-        // Then load and setup all models (both default and custom)
-        const loadPromises = environmentModels.map(async model => {
-            try {
-                const gltf = await loadModel(model.modelUrl);
-                await setupInstancedMesh(model, gltf);
-            } catch (error) {
-                console.error(`Error preloading model ${model.name}:`, error);
-            }
-        });
-        
-        // Wait for all models to be loaded and set up
-        await Promise.all(loadPromises);
-
-        // Finally, load saved environment data
-        await loadSavedEnvironment();
+        console.log("Models preloaded: ", loadedModels.current);
     };
     
-    // Update the setTotalEnvironmentObjects usage
-    useEffect(() => {
-        onTotalObjectsChange?.(totalEnvironmentObjects);
-    }, [totalEnvironmentObjects, onTotalObjectsChange]);
-
-    // Add initialization in useEffect
-    useEffect(() => {
-        if (scene) {
-            preloadModels().catch(error => {
-                console.error('Error during model preload:', error);
-            });
-        }
-    }, [scene]); // Only run when scene is available
-
-    // Add effect to update preview when settings change
-    useEffect(() => {
-        if (placeholderMesh && currentBlockType?.isEnvironment) {
-            const transform = getPlacementTransform();
-            
-            // Apply transform only to the root mesh
-            placeholderMesh.scale.copy(transform.scale);
-            placeholderMesh.rotation.copy(transform.rotation);
-        }
-    }, [placementSettings]); // Watch for changes in placement settings
-
-    const setupInstancedMesh = async (modelType, gltf) => {
+    const setupInstancedMesh = (modelType, gltf) => {
         if (!gltf || !gltf.scene) {
             console.error('Invalid GLTF data for model:', modelType.name);
             return;
@@ -305,49 +268,37 @@ export const EnvironmentBuilder = forwardRef(({
         });
     };
 
-    const updateModelPreview = async (position) => {
+    const updateModelPreview = (position) => {
         if (!currentBlockType || !scene) {
             return;
         }
 
-        if(!currentBlockType.isEnvironment && placeholderMesh)
-        {
+        // If not an environment type and we have a preview, remove it
+        if (!currentBlockType.isEnvironment) {
             removePreview();
             return;
         }
 
-        try {
-            // Compare with currentBlockType.id instead of currentBlockType
-            const modelData = environmentModels.find(model => model.id === currentBlockType.id);
-            if (!modelData) {
-                console.warn('Model data not found for type:', currentBlockType);
-                return;
-            }
+        const modelData = environmentModels.find(model => model.id === currentBlockType.id);
+        if (!modelData) {
+            console.warn('Model data not found for type:', currentBlockType);
+            return;
+        }
 
-            // If we don't have a placeholder mesh or it's for a different model, create a new one
-            if (!placeholderMesh || placeholderMesh.userData.modelId !== currentBlockType.id) {
-                // Remove existing preview since model changed
-                removePreview();
-
-                // Load the new model if not already loaded
-                const gltf = await loadModel(modelData.modelUrl);
-                if (!gltf) {
-                    console.warn('Failed to load model for preview');
-                    return;
-                }
-
-                // Create and setup preview mesh
-                setupPreview(position);
-            } else {
-                // Just update the position of the existing preview mesh
-                placeholderMesh.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
-            }
-        } catch (error) {
-            console.error('Error updating model preview:', error);
+        // Only create new preview if needed
+        if (!placeholderMeshRef.current || placeholderMeshRef.current.userData.modelId !== currentBlockType.id) {
+            removePreview();
+            setupPreview(position);
+        } else if (position) {
+            // Just update position if preview exists
+            placeholderMeshRef.current.position.copy(position.clone().add(positionOffset.current));
         }
     };
 
+    // Separate setup function to create the preview mesh
     const setupPreview = (position) => {
+
+        console.log("setting up ENVIRONMENTpreview");
         const modelData = environmentModels.find(model => model.id === currentBlockType.id);
         if (!modelData) {
             console.warn('Model data not found for type:', currentBlockType);
@@ -370,7 +321,12 @@ export const EnvironmentBuilder = forwardRef(({
         // Apply transforms only to root
         previewModel.scale.copy(transform.scale);
         previewModel.rotation.copy(transform.rotation);
-        previewModel.position.copy(position?.clone().add(positionOffset.current) || new THREE.Vector3());
+        
+        // Handle position, using a default if none provided
+        const finalPosition = position ? 
+            position.clone().add(positionOffset.current) : 
+            new THREE.Vector3();
+        previewModel.position.copy(finalPosition);
         
         // Make the preview semi-transparent
         previewModel.traverse((child) => {
@@ -387,25 +343,26 @@ export const EnvironmentBuilder = forwardRef(({
         });
         
         scene.add(previewModel);
-        setPlaceholderMesh(previewModel);
+        placeholderMeshRef.current = previewModel;
     };
 
-    const loadSavedEnvironment = async () => {
-        try {
-            const savedEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
-            
-            if (Array.isArray(savedEnvironment) && savedEnvironment.length > 0) {
-                await updateEnvironmentToMatch(savedEnvironment);
-            } else {
-                await clearEnvironments();
-            }
-        } catch (error) {
-            console.error('Error loading saved environment:', error);
-        }
+    const loadSavedEnvironment = () => {
+        DatabaseManager.getData(STORES.ENVIRONMENT, 'current')
+            .then((savedEnvironment) => {
+                if (Array.isArray(savedEnvironment) && savedEnvironment.length > 0) {
+                    updateEnvironmentToMatch(savedEnvironment);
+                } else {
+                    clearEnvironments();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading saved environment:', error);
+                clearEnvironments();
+            });
     };
 
     // New function to efficiently update environment
-    const updateEnvironmentToMatch = async (targetState) => {
+    const updateEnvironmentToMatch = (targetState) => {
         try {            
             // Make a list of all current objects
             const toRemove = [];
@@ -431,12 +388,12 @@ export const EnvironmentBuilder = forwardRef(({
                     tempMesh.scale.copy(obj.scale);
                     
                     // Use a version of placeEnvironmentModel that doesn't save state
-                    await placeEnvironmentModelWithoutSaving({ ...modelType, isEnvironment: true }, tempMesh);
+                    placeEnvironmentModelWithoutSaving({ ...modelType, isEnvironment: true }, tempMesh);
                 }
             }
 
             // Save to DB
-            await updateLocalStorage();
+            updateLocalStorage();
 
             // Update total count
             setTotalEnvironmentObjects(targetState.length);
@@ -447,63 +404,58 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     // New function that places without saving state
-    const placeEnvironmentModelWithoutSaving = async (blockType, mesh) => {
-        try {
-            if (!blockType || !mesh) {
-                console.warn(`blockType and mesh null`);
-                return null;
-            }
-
-            const modelData = environmentModels.find(model => model.id === blockType.id);
-            if (!modelData) {
-                console.warn(`Could not find model with ID ${blockType.id}`);
-                return null;
-            }
-
-            const modelUrl = modelData.modelUrl;
-            const instancedData = instancedMeshes.current.get(modelUrl);
-            
-            if (!instancedData) {
-                console.warn(`Could not find instanced data for model ${modelData.modelUrl}`);
-                return null;
-            }
-
-            const position = mesh.position.clone();
-            const rotation = mesh.rotation.clone();
-            const scale = mesh.scale.clone();
-
-            const matrix = new THREE.Matrix4();
-            matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
-
-            const instanceId = instancedData.instances.size;
-            
-            instancedData.meshes.forEach(mesh => {
-                mesh.count++;
-                if (instanceId >= mesh.instanceMatrix.count) {
-                    expandInstancedMeshCapacity(modelUrl);
-                }
-                mesh.setMatrixAt(instanceId, matrix);
-                mesh.instanceMatrix.needsUpdate = true;
-            });
-
-            instancedData.instances.set(instanceId, {
-                position,
-                rotation,
-                scale,
-                matrix
-            });
-
-            return {
-                modelUrl,
-                instanceId,
-                position,
-                rotation,
-                scale
-            };
-        } catch (error) {
-            console.error('Error in placeEnvironmentModelWithoutSaving:', error);
+    const placeEnvironmentModelWithoutSaving = (blockType, mesh) => {
+        if (!blockType || !mesh) {
+            console.warn(`blockType and mesh null`);
             return null;
         }
+
+        const modelData = environmentModels.find(model => model.id === blockType.id);
+        if (!modelData) {
+            console.warn(`Could not find model with ID ${blockType.id}`);
+            return null;
+        }
+
+        const modelUrl = modelData.modelUrl;
+        const instancedData = instancedMeshes.current.get(modelUrl);
+        
+        if (!instancedData) {
+            console.warn(`Could not find instanced data for model ${modelData.modelUrl}`);
+            return null;
+        }
+
+        const position = mesh.position.clone();
+        const rotation = mesh.rotation.clone();
+        const scale = mesh.scale.clone();
+
+        const matrix = new THREE.Matrix4();
+        matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+
+        const instanceId = instancedData.instances.size;
+        
+        instancedData.meshes.forEach(mesh => {
+            mesh.count++;
+            if (instanceId >= mesh.instanceMatrix.count) {
+                expandInstancedMeshCapacity(modelUrl);
+            }
+            mesh.setMatrixAt(instanceId, matrix);
+            mesh.instanceMatrix.needsUpdate = true;
+        });
+
+        instancedData.instances.set(instanceId, {
+            position,
+            rotation,
+            scale,
+            matrix
+        });
+
+        return {
+            modelUrl,
+            instanceId,
+            position,
+            rotation,
+            scale
+        };
     };
 
     const clearEnvironments = () => {
@@ -551,165 +503,161 @@ export const EnvironmentBuilder = forwardRef(({
         };
     };
 
-    const placeEnvironmentModel = async (blockType = currentBlockType, mesh = placeholderMesh) => {
-        try {
-            // Get current state before any modifications
-            const currentState = {
-                terrain: await DatabaseManager.getData(STORES.TERRAIN, 'current') || {},
-                environment: await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || []
-            };
-
-            if (!blockType || !mesh) {
-                console.warn('Missing required data for placing environment model:', {
-                    blockType: !!blockType,
-                    mesh: !!mesh
-                });
-                return null;
-            }
-
-            // Ensure we're working with an environment model
-            if (!blockType.isEnvironment) {
-                console.warn('Attempted to place non-environment model:', blockType);
-                return null;
-            }
-
-            const modelData = environmentModels.find(model => model.id === blockType.id);
-            if (!modelData) {
-                console.warn('Model data not found for type:', blockType);
-                return null;
-            }
-
-            const modelUrl = modelData.modelUrl;
-            const instancedData = instancedMeshes.current.get(modelUrl);
-            
-            if (!instancedData) {
-                console.warn('No instanced data found for model:', modelUrl);
-                return null;
-            }
-
-            const centerPosition = mesh.position.clone();
-            const baseRotation = mesh.rotation.clone();
-            const baseScale = mesh.scale.clone();
-
-            // Define positions based on placementSize
-            let positions = [centerPosition.clone()]; // Default to single placement
-
-            if (placementSize === "cross") {
-                positions = [
-                    centerPosition.clone(),
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
-                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
-                    centerPosition.clone().add(new THREE.Vector3(1, 0, 0))
-                ];
-            } else if (placementSize === "diamond") {
-                positions = [
-                    centerPosition.clone(),
-                    // Inner ring
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
-                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
-                    centerPosition.clone().add(new THREE.Vector3(1, 0, 0)),
-                    // Outer ring
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, -2)),
-                    centerPosition.clone().add(new THREE.Vector3(0, 0, 2)),
-                    centerPosition.clone().add(new THREE.Vector3(-2, 0, 0)),
-                    centerPosition.clone().add(new THREE.Vector3(2, 0, 0)),
-                    centerPosition.clone().add(new THREE.Vector3(-1, 0, -1)),
-                    centerPosition.clone().add(new THREE.Vector3(-1, 0, 1)),
-                    centerPosition.clone().add(new THREE.Vector3(1, 0, -1)),
-                    centerPosition.clone().add(new THREE.Vector3(1, 0, 1))
-                ];
-            } else if (placementSize === "square9") {
-                positions = [];
-                for (let x = -1; x <= 1; x++) {
-                    for (let z = -1; z <= 1; z++) {
-                        positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
-                    }
-                }
-            } else if (placementSize === "square16") {
-                positions = [];
-                for (let x = -2; x <= 1; x++) {
-                    for (let z = -2; z <= 1; z++) {
-                        positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
-                    }
-                }
-            }
-
-            // Place instances at all positions
-            const placedInstances = positions.map((position) => {
-                const transform = getPlacementTransform();
-                
-                // Create matrix from position and transform
-                const matrix = new THREE.Matrix4();
-                matrix.compose(
-                    position,
-                    new THREE.Quaternion().setFromEuler(transform.rotation),
-                    transform.scale
-                );
-
-                const instanceId = instancedData.instances.size;
-                
-                // Update all meshes for this instance
-                instancedData.meshes.forEach(mesh => {
-                    if (instanceId >= mesh.instanceMatrix.count) {
-                        expandInstancedMeshCapacity(modelUrl);
-                    }
-                    mesh.count++;
-                    mesh.setMatrixAt(instanceId, matrix);
-                    mesh.instanceMatrix.needsUpdate = true;
-                });
-
-                // Store instance data
-                instancedData.instances.set(instanceId, {
-                    position: position.clone(),
-                    rotation: transform.rotation.clone(),
-                    scale: transform.scale.clone(),
-                    matrix: matrix.clone()
-                });
-
-                return {
-                    modelUrl,
-                    instanceId,
-                    position: position.clone(),
-                    rotation: transform.rotation.clone(),
-                    scale: transform.scale.clone()
-                };
-            });
-
-            // Save the new environment state
-            const newEnvironmentState = Array.from(instancedMeshes.current.entries()).flatMap(([modelUrl, instancedData]) => {
-                const modelData = environmentModels.find(model => model.modelUrl === modelUrl);
-                return Array.from(instancedData.instances.entries()).map(([instanceId, data]) => ({
-                    modelUrl,
-                    name: modelData?.name,
-                    instanceId,
-                    position: data.position,
-                    rotation: data.rotation,
-                    scale: data.scale
-                }));
-            });
-
-            await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnvironmentState);
-
-            // Save undo state with only the added instances
-            await UndoRedoManager.saveUndo({
-                environment: {
-                    added: placedInstances,
-                    removed: []
-                }
-            });
-
-            setTotalEnvironmentObjects(newEnvironmentState.length);
-
-            return placedInstances[0]; // Return first instance for compatibility
-        } catch (error) {
-            console.error('Error in placeEnvironmentModel:', error);
+    const placeEnvironmentModel = (blockType = currentBlockType, mesh = placeholderMeshRef.current) => {
+        if (!scene) {
+            console.warn('Scene not available');
             return null;
         }
+
+        if (!blockType || !mesh) {
+            console.warn('Missing required data for placing environment model:', {
+                blockType: !!blockType,
+                mesh: !!mesh
+            });
+            return null;
+        }
+
+        // Ensure we're working with an environment model
+        if (!blockType.isEnvironment) {
+            console.warn('Attempted to place non-environment model:', blockType);
+            return null;
+        }
+
+        const modelData = environmentModels.find(model => model.id === blockType.id);
+        if (!modelData) {
+            console.warn('Model data not found for type:', blockType);
+            return null;
+        }
+
+        const modelUrl = modelData.modelUrl;
+        const instancedData = instancedMeshes.current.get(modelUrl);
+        
+        if (!instancedData) {
+            console.warn('No instanced data found for model:', modelUrl);
+            return null;
+        }
+
+        const centerPosition = mesh.position.clone();
+        const baseRotation = mesh.rotation.clone();
+        const baseScale = mesh.scale.clone();
+
+        // Define positions based on placementSize
+        let positions = [centerPosition.clone()]; // Default to single placement
+
+        console.log("placementSize", placementSizeRef.current);
+
+        if (placementSizeRef.current === "cross") {
+            positions = [
+                centerPosition.clone(),
+                centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
+                centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
+                centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
+                centerPosition.clone().add(new THREE.Vector3(1, 0, 0))
+            ];
+        } else if (placementSizeRef.current === "diamond") {
+            positions = [
+                centerPosition.clone(),
+                // Inner ring
+                centerPosition.clone().add(new THREE.Vector3(0, 0, -1)),
+                centerPosition.clone().add(new THREE.Vector3(0, 0, 1)),
+                centerPosition.clone().add(new THREE.Vector3(-1, 0, 0)),
+                centerPosition.clone().add(new THREE.Vector3(1, 0, 0)),
+                // Outer ring
+                centerPosition.clone().add(new THREE.Vector3(0, 0, -2)),
+                centerPosition.clone().add(new THREE.Vector3(0, 0, 2)),
+                centerPosition.clone().add(new THREE.Vector3(-2, 0, 0)),
+                centerPosition.clone().add(new THREE.Vector3(2, 0, 0)),
+                centerPosition.clone().add(new THREE.Vector3(-1, 0, -1)),
+                centerPosition.clone().add(new THREE.Vector3(-1, 0, 1)),
+                centerPosition.clone().add(new THREE.Vector3(1, 0, -1)),
+                centerPosition.clone().add(new THREE.Vector3(1, 0, 1))
+            ];
+        } else if (placementSizeRef.current === "square9") {
+            positions = [];
+            for (let x = -1; x <= 1; x++) {
+                for (let z = -1; z <= 1; z++) {
+                    positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
+                }
+            }
+        } else if (placementSizeRef.current === "square16") {
+            positions = [];
+            for (let x = -2; x <= 1; x++) {
+                for (let z = -2; z <= 1; z++) {
+                    positions.push(centerPosition.clone().add(new THREE.Vector3(x, 0, z)));
+                }
+            }
+        }
+
+        // Place instances at all positions
+        const placedInstances = positions.map((position) => {
+            const transform = getPlacementTransform();
+            
+            // Create matrix from position and transform
+            const matrix = new THREE.Matrix4();
+            matrix.compose(
+                position,
+                new THREE.Quaternion().setFromEuler(transform.rotation),
+                transform.scale
+            );
+
+            const instanceId = instancedData.instances.size;
+            
+            // Update all meshes for this instance
+            instancedData.meshes.forEach(mesh => {
+                if (instanceId >= mesh.instanceMatrix.count) {
+                    expandInstancedMeshCapacity(modelUrl);
+                }
+                mesh.count++;
+                mesh.setMatrixAt(instanceId, matrix);
+                mesh.instanceMatrix.needsUpdate = true;
+            });
+
+            // Store instance data
+            instancedData.instances.set(instanceId, {
+                position: position.clone(),
+                rotation: transform.rotation.clone(),
+                scale: transform.scale.clone(),
+                matrix: matrix.clone()
+            });
+
+            return {
+                modelUrl,
+                instanceId,
+                position: position.clone(),
+                rotation: transform.rotation.clone(),
+                scale: transform.scale.clone()
+            };
+        });
+
+        // Save the new environment state
+        const newEnvironmentState = Array.from(instancedMeshes.current.entries()).flatMap(([modelUrl, instancedData]) => {
+            const modelData = environmentModels.find(model => model.modelUrl === modelUrl);
+            return Array.from(instancedData.instances.entries()).map(([instanceId, data]) => ({
+                modelUrl,
+                name: modelData?.name,
+                instanceId,
+                position: data.position,
+                rotation: data.rotation,
+                scale: data.scale
+            }));
+        });
+
+        DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnvironmentState);
+
+        // Save undo state with only the added instances
+        UndoRedoManager.saveUndo({
+            environment: {
+                added: placedInstances,
+                removed: []
+            }
+        });
+
+        setTotalEnvironmentObjects(newEnvironmentState.length);
+
+        return placedInstances[0]; // Return first instance for compatibility
     };
 
-    const updateLocalStorage = async () => {
+    const updateLocalStorage = () => {
         const allObjects = [];
         
         // Collect all instances from all models
@@ -729,13 +677,7 @@ export const EnvironmentBuilder = forwardRef(({
             });
         }
 
-        // Save to IndexedDB
-        try {
-            await DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', allObjects);
-        } catch (error) {
-            console.warn('Failed to save to IndexedDB:', error);
-        }
-
+        DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', allObjects);
         setTotalEnvironmentObjects(allObjects.length);
     };
 
@@ -819,23 +761,25 @@ export const EnvironmentBuilder = forwardRef(({
     };
 
     const updatePreviewPosition = (position) => {
-        if (placeholderMesh) {
+        if (placeholderMeshRef.current) {
             const transform = getPlacementTransform();
             
             // Apply transform only to the root mesh
-            placeholderMesh.position.copy(position.clone().add(positionOffset.current));
-            placeholderMesh.scale.copy(transform.scale);
-            placeholderMesh.rotation.copy(transform.rotation);
+            placeholderMeshRef.current.position.copy(position.clone().add(positionOffset.current));
+            placeholderMeshRef.current.scale.copy(transform.scale);
+            placeholderMeshRef.current.rotation.copy(transform.rotation);
         }
     };
 
     const removePreview = () => {
-        if (placeholderMesh) {
+
+        console.log("removing ENVIRONMENTpreview");
+        if (placeholderMeshRef.current) {
             // Remove from scene
-            scene.remove(placeholderMesh);
+            scene.remove(placeholderMeshRef.current);
             
             // Clean up materials to prevent memory leaks
-            placeholderMesh.traverse((child) => {
+            placeholderMeshRef.current.traverse((child) => {
                 if (child.isMesh) {
                     if (child.material) {
                         // Dispose of materials
@@ -853,23 +797,74 @@ export const EnvironmentBuilder = forwardRef(({
             });
 
             // Clear the reference
-            setPlaceholderMesh(null);
+            placeholderMeshRef.current = null;
             ///console.log('Preview model removed and cleaned up');
         }
     };
 
     const rotatePreview = (angle) => {
-        if (placeholderMesh) {
-            placeholderMesh.rotation.y += angle;
+        if (placeholderMeshRef.current) {
+            placeholderMeshRef.current.rotation.y += angle;
         }
     };
 
     const setScale = (scale) => {
         setScale(scale);
-        if (placeholderMesh) {
-            placeholderMesh.scale.set(scale, scale, scale);
+        if (placeholderMeshRef.current) {
+            placeholderMeshRef.current.scale.set(scale, scale, scale);
         }
     };
+
+    // Update the setTotalEnvironmentObjects usage
+    useEffect(() => {
+        onTotalObjectsChange?.(totalEnvironmentObjects);
+    }, [totalEnvironmentObjects, onTotalObjectsChange]);
+
+    // Add initialization in useEffect
+    useEffect(() => {
+        if (scene) {
+            preloadModels().catch(error => {
+                console.error("Error in preloadModels:", error);
+            });
+        }
+    }, [scene]);
+
+    // use effect for setting up and removing preview
+    useEffect(() => {
+        if (currentBlockType?.isEnvironment && !placeholderMeshRef.current) {
+            setupPreview(null); // Create new preview only if none exists
+        } else if (!currentBlockType?.isEnvironment && placeholderMeshRef.current) {
+            removePreview(); // Remove preview if not an environment type
+        }
+    }, [currentBlockType, placeholderMeshRef.current]);
+
+    /// use effect for updating preview position
+    useEffect(() => {
+        if (previewPositionFromAppJS && placeholderMeshRef.current) {
+            updateModelPreview(previewPositionFromAppJS);
+        }
+    }, [previewPositionFromAppJS, placeholderMeshRef.current]);
+
+    // Add effect to update preview when settings change
+    useEffect(() => {
+        console.log('Updating preview rotation and scale, placement settings:', placementSettings);
+        if (placeholderMeshRef.current && currentBlockType?.isEnvironment) {
+            const transform = getPlacementTransform();
+            
+            // Apply transform only to the root mesh
+            placeholderMeshRef.current.scale.copy(transform.scale);
+            placeholderMeshRef.current.rotation.copy(transform.rotation);
+        }
+    }, [placementSettings.current]); // Watch for changes in placement settings
+    
+    // Add effect to track placementSize changes
+    useEffect(() => {
+        placementSizeRef.current = placementSize;
+        // Update preview if it exists
+        if (placeholderMeshRef.current && currentBlockType?.isEnvironment) {
+            updateModelPreview(placeholderMeshRef.current.position.clone().sub(positionOffset.current));
+        }
+    }, [placementSize]);
 
     useImperativeHandle(ref, () => ({
         getObjectByPosition,
@@ -877,31 +872,18 @@ export const EnvironmentBuilder = forwardRef(({
         removePreview,
         rotatePreview,
         setScale,
-        placeEnvironmentModel: () => placeEnvironmentModel(),
+        placeEnvironmentModel,
         preloadModels,
         clearEnvironments,
         updateInstanceTransform,
         removeInstance,
         updatePreviewPosition,
         loadSavedEnvironment,
-        loadCustomModel: async (modelData) => {
-            try {
-                // Load the model
-                const gltf = await loadModel(modelData.modelUrl);
-                
-                // Set up instanced mesh for the new model
-                await setupInstancedMesh(modelData, gltf);
-                
-                return true;
-            } catch (error) {
-                console.error('Error loading custom model:', error);
-                throw error;
-            }
-        }
-    }));
+        loadModel
+    }), [scene, currentBlockType, placeholderMeshRef.current]);
 
     // Return null since this component doesn't need to render anything visible
     return null;
-});
+};
 
-export default EnvironmentBuilder;
+export default forwardRef(EnvironmentBuilder);
