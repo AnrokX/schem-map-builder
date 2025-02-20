@@ -123,8 +123,9 @@ export class DatabaseManager {
       // Clear all stores sequentially
       for (const storeName of Object.values(STORES)) {
         await this.clearStore(storeName);
-        window.location.reload();
       }
+      // Only reload after all stores are cleared
+      window.location.reload();
     } catch (error) {
       console.error('Error clearing database:', error);
       throw error;

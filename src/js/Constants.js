@@ -1,6 +1,6 @@
 // version and under construction constants
 export const version = "1.4.0";
-export const IS_UNDER_CONSTRUCTION = true;
+export const IS_UNDER_CONSTRUCTION = false;
 
 // undo redo constants
 export const MIN_UNDO_STATES = 30;

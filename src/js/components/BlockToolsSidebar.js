@@ -22,6 +22,7 @@ const BlockToolsSidebar = ({
   setCurrentBlockType,
   environmentBuilder,
   updateTerrainWithHistory,
+  onPlacementSettingsChange,
 }) => {
   const [settings, setSettings] = useState({
     randomScale: false,
@@ -37,6 +38,8 @@ const BlockToolsSidebar = ({
   const updateSettings = (updates) => {
     const newSettings = { ...settings, ...updates };
     setSettings(newSettings);
+    // Pass settings up to parent
+    onPlacementSettingsChange?.(newSettings);
   };
 
   const handleDragStart = (blockId) => {
@@ -123,8 +126,6 @@ const BlockToolsSidebar = ({
     });
     selectedBlockID = blockType.id;
   };
-
-
 
 
   const handleDrop = async (e) => {
@@ -220,8 +221,8 @@ const BlockToolsSidebar = ({
               
               environmentModels.push(newEnvironmentModel);
               
-              if (environmentBuilder.current) {
-                await environmentBuilder.current.loadCustomModel(newEnvironmentModel);
+              if (environmentBuilder) {
+                await environmentBuilder.current.addCustomModel(newEnvironmentModel);
                 console.log(`Successfully loaded custom model: ${fileName}`);
               }
             } catch (error) {

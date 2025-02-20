@@ -39,6 +39,16 @@ function App() {
   const [currentPreviewPosition, setCurrentPreviewPosition] = useState(null);
   const environmentBuilderRef = useRef(null);
   const terrainBuilderRef = useRef(null);
+  const [placementSettings, setPlacementSettings] = useState({
+    randomScale: false,
+    randomRotation: false,
+    minScale: 0.5,
+    maxScale: 1.5,
+    minRotation: 0,
+    maxRotation: 360,
+    scale: 1.0,
+    rotation: 0
+  });
 
   /// this listens for the state change of the block type and updates the current block type
   const handleBlockTypeChange = (newBlockType) => {
@@ -78,6 +88,7 @@ function App() {
         updateTerrainWithHistory={setTerrainState}
         setActiveTab={setActiveTab}
         environmentBuilderRef={environmentBuilderRef}
+        onPlacementSettingsChange={setPlacementSettings}
       />
 
       <Canvas shadows className="canvas-container">
@@ -111,6 +122,7 @@ function App() {
           onTotalObjectsChange={setTotalEnvironmentObjects}
           placementSize={placementSize}
           previewPositionFromAppJS={currentPreviewPosition}
+          placementSettings={placementSettings}
         />
       </Canvas>
 
