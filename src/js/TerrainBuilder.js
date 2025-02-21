@@ -6,7 +6,6 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import { playPlaceSound } from "./Sound";
 import { cameraManager } from "./Camera";
 import { DatabaseManager, STORES } from "./DatabaseManager";
-import { UndoRedoManager } from "./UndoRedo";
 import { AXIS_LOCK_THRESHOLD, THRESHOLD_FOR_PLACING } from "./Constants";
 
 let terrainRef = {};
@@ -74,7 +73,7 @@ export const getBlockTypes = () => blockTypesArray;
 // Export the initial blockTypes for backward compatibility
 export const blockTypes = blockTypesArray;
 
-function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToAppJS, currentBlockType, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
+function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToAppJS, currentBlockType, undoRedoManager, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
 
 	// Scene setup
 	const { camera, scene, raycaster, mouse, gl } = useThree();
@@ -571,11 +570,13 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 			recentlyPlacedBlocksRef.current.clear();
 
 			if (placementStartState.current) {
+				// Gather current state
 				const currentState = {
 					terrain: { ...terrainRef.current },
 					environment: DatabaseManager.getData(STORES.ENVIRONMENT, "current") || [],
 				};
 
+				// Each "undo" record stores only the blocks added or removed during this drag
 				const changes = {
 					terrain: {
 						added: {},
@@ -587,25 +588,31 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 					},
 				};
 
+				// Compare old & new terrain for added/removed
 				Object.entries(currentState.terrain).forEach(([key, value]) => {
 					if (!placementStartState.current.terrain[key]) {
 						changes.terrain.added[key] = value;
 					}
 				});
-
 				Object.entries(placementStartState.current.terrain).forEach(([key, value]) => {
 					if (!currentState.terrain[key]) {
 						changes.terrain.removed[key] = value;
 					}
 				});
 
-				if (Object.keys(changes.terrain.added).length > 0 || Object.keys(changes.terrain.removed).length > 0) {
-					UndoRedoManager.saveUndo(changes);
+				if (
+					Object.keys(changes.terrain.added).length > 0 ||
+					Object.keys(changes.terrain.removed).length > 0
+				) {
+					// Save Undo
+					undoRedoManager.saveUndo(changes);
 				}
 
+				// Clear out the "start state"
 				placementStartState.current = null;
 			}
 
+			// If axis lock was on, reset
 			if (axisLockEnabled) {
 				lockedAxisRef.current = null;
 				placementStartPosition.current = null;
@@ -935,7 +942,23 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 	// Expose buildUpdateTerrain and clearMap via ref
 	React.useImperativeHandle(ref, () => ({
 		buildUpdateTerrain,
-		clearMap
+		clearMap,
+		/**
+		 * Force a DB reload of terrain and then rebuild it
+		 */
+		async refreshTerrainFromDB() {
+			try {
+				const saved = await DatabaseManager.getData(STORES.TERRAIN, "current");
+				if (saved) {
+					terrainRef.current = saved;
+				} else {
+					terrainRef.current = {};
+				}
+				buildUpdateTerrain();
+			} catch (err) {
+				console.error("Error reloading terrain from DB:", err);
+			}
+		},
 	}));
 
 	// Add resize listener to update canvasRect

@@ -17,9 +17,11 @@ import { version, IS_UNDER_CONSTRUCTION } from './js/Constants';
 import ToolBar from './js/components/ToolBar';
 import {DatabaseManager} from './js/DatabaseManager';
 import UnderConstruction from "./js/components/UnderConstruction";
+import UndoRedoManager from "./js/UndoRedo";
 
 function App() {
   const [terrain, setTerrainState] = useState({});
+  const undoRedoManagerRef = useRef(null);
   const [currentBlockType, setCurrentBlockType] = useState(blockTypes[0]);
   const [mode, setMode] = useState("add");
   const [debugInfo, setDebugInfo] = useState({ mouse: {}, preview: {}, grid: {}});
@@ -113,6 +115,7 @@ function App() {
           gridSize={gridSize}
           environmentBuilderRef={environmentBuilderRef}
           previewPositionToAppJS={setCurrentPreviewPosition}
+          undoRedoManager={undoRedoManagerRef.current}
         />
         <EnvironmentBuilder
           ref={environmentBuilderRef}
@@ -123,6 +126,7 @@ function App() {
           placementSize={placementSize}
           previewPositionFromAppJS={currentPreviewPosition}
           placementSettings={placementSettings}
+          undoRedoManager={undoRedoManagerRef.current}
         />
       </Canvas>
 
@@ -143,6 +147,13 @@ function App() {
         terrain={terrain}
         setTerrainState={setTerrainState}
         setGridSize={setGridSize}
+        undoRedoManager={undoRedoManagerRef.current}
+      />
+
+      <UndoRedoManager
+        ref={undoRedoManagerRef}
+        terrainBuilderRef={terrainBuilderRef}
+        environmentBuilderRef={environmentBuilderRef}
       />
 
       <div className="camera-controls-wrapper">

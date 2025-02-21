@@ -23,7 +23,6 @@ import { environmentModels } from "../EnvironmentBuilder";
 import { getBlockTypes } from "../TerrainBuilder";
 import * as THREE from "three";
 import { version } from "../Constants";
-import { UndoRedoManager } from "../UndoRedo";
 
 const ToolBar = ({
   terrainBuilderRef,
@@ -40,6 +39,7 @@ const ToolBar = ({
   handleImport,
   handleAssetPackImport,
   setGridSize,
+  undoRedoManager,
 }) => {
   const [newGridSize, setNewGridSize] = useState(100);
   const [showDimensionsModal, setShowDimensionsModal] = useState(false);
@@ -633,12 +633,12 @@ const ToolBar = ({
               </button>
             </Tooltip>
             <Tooltip text="Undo (Ctrl+Z)">
-              <button onClick={UndoRedoManager.undo} className="control-button">
+              <button onClick={() => undoRedoManager.undo()} className="control-button">
                 <FaUndo />
               </button>
             </Tooltip>
             <Tooltip text="Redo (Ctrl+Y)">
-              <button onClick={UndoRedoManager.redo} className="control-button">
+              <button onClick={() => undoRedoManager.redo()} className="control-button">
                 <FaRedo />
               </button>
             </Tooltip>

@@ -3,7 +3,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { DatabaseManager, STORES } from './DatabaseManager';
-import { UndoRedoManager } from './UndoRedo';
 
 export const environmentModels = (() => {
   try {
@@ -48,7 +47,7 @@ export const environmentModels = (() => {
   }
 })();
 
-const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType, mode, onTotalObjectsChange, placementSize = 'single', placementSettings}, ref) => {
+const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType, mode, onTotalObjectsChange, placementSize = 'single', placementSettings, undoRedoManager}, ref) => {
 
     // Convert class properties to refs and state
     const loader = useRef(new GLTFLoader());
@@ -62,6 +61,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         rotation: new THREE.Euler(0, 0, 0) 
     });
     const placementSettingsRef = useRef(placementSettings);
+    const isUndoRedoOperation = useRef(false);
 
     /// state for total environment objects
     const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
@@ -415,6 +415,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
     /// only used when rebuilding the environment
     const updateEnvironmentToMatch = (targetState) => {
         try {
+            isUndoRedoOperation.current = true;
             // Create maps for efficient lookups
             const currentObjects = new Map(); // Map<uniqueId, {modelUrl, instanceId, position, rotation, scale}>
             const targetObjects = new Map(); // Map<uniqueId, {name, position, rotation, scale}>
@@ -439,7 +440,12 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             // Build target state map
             targetState.forEach(obj => {
                 const uniqueId = `${obj.position.x.toFixed(3)},${obj.position.y.toFixed(3)},${obj.position.z.toFixed(3)}`;
-                targetObjects.set(uniqueId, obj);
+                targetObjects.set(uniqueId, {
+                    ...obj,
+                    position: new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z),
+                    rotation: new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z),
+                    scale: new THREE.Vector3(obj.scale.x, obj.scale.y, obj.scale.z)
+                });
             });
 
             // Find objects to remove (in current but not in target)
@@ -527,6 +533,8 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
         } catch (error) {
             console.error('Error updating environment:', error);
+        } finally {
+            isUndoRedoOperation.current = false;
         }
     };
 
@@ -662,13 +670,20 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             return;
         }
 
-        // 1) Use the transform stored in lastPreviewTransform for the current item    
+        // Snapshots BEFORE adding anything
+        // (We only track the new objects as "added". For more advanced logic,
+        // you could store the entire environment for a diff-based approach.)
+        const environmentBefore = [...(instancedData.instances.values())]
+            .map(v => ({ // make a quick JSON-serializable copy
+                position: { x: v.position.x, y: v.position.y, z: v.position.z },
+                rotation: { x: v.rotation.x, y: v.rotation.y, z: v.rotation.z },
+                scale: { x: v.scale.x, y: v.scale.y, z: v.scale.z }
+            }));
+        
+        // 1) Use the transform stored in lastPreviewTransform.current
         const transform = lastPreviewTransform.current;
-
-        // 2) Position from preview
         const position = placeholderMeshRef.current.position.clone();
 
-        // Build its final matrix
         const matrix = new THREE.Matrix4();
         matrix.compose(
             position,
@@ -676,7 +691,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             transform.scale
         );
 
-        // Insert into InstancedMesh (expand capacity if needed, etc.)
         const instanceId = instancedData.instances.size;
         
         // Check and expand capacity before processing meshes
@@ -702,6 +716,22 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             mesh.setMatrixAt(instanceId, matrix);
             mesh.instanceMatrix.needsUpdate = true;
         });
+
+        // Once done, record which object we actually added
+        const newObject = {
+            modelUrl,
+            position: { x: position.x, y: position.y, z: position.z },
+            rotation: { x: transform.rotation.x, y: transform.rotation.y, z: transform.rotation.z },
+            scale: { x: transform.scale.x, y: transform.scale.y, z: transform.scale.z },
+        }
+
+        // This environment is "added"
+        const changes = {
+            terrain: { added: {}, removed: {}}, // no terrain changes
+            environment: { added: [newObject], removed: [] },
+        };
+        // Save it
+        undoRedoManager.saveUndo(changes);
 
         // Save instance data
         instancedData.instances.set(instanceId, {
@@ -822,6 +852,9 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         const instancedData = instancedMeshes.current.get(modelUrl);
         if (!instancedData || !instancedData.instances.has(instanceId)) return;
 
+        // Identify the object we're removing, for Undo data
+        const objectData = instancedData.instances.get(instanceId);
+
         // Move last instance to this slot if it's not the last one
         const lastInstanceId = Array.from(instancedData.instances.keys()).pop();
         
@@ -841,6 +874,41 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         });
         
         instancedData.instances.delete(lastInstanceId);
+
+        // Convert to plain object
+        const removedObject = {
+            modelUrl,
+            position: { x: objectData.position.x, y: objectData.position.y, z: objectData.position.z },
+            rotation: { x: objectData.rotation.x, y: objectData.rotation.y, z: objectData.rotation.z },
+            scale: { x: objectData.scale.x, y: objectData.scale.y, z: objectData.scale.z },
+        };
+
+        // Only save undo state if we're not in an undo/redo operation
+        if (!isUndoRedoOperation.current) {
+            const changes = {
+                terrain: { added: {}, removed: {} },
+                environment: { added: [], removed: [removedObject] },
+            };
+            undoRedoManager.saveUndo(changes);
+        }
+
+        // Always update storage
+        updateLocalStorage();
+    };
+
+    const refreshEnvironmentFromDB = async () => {
+        try {
+            // If you want to double-check the flag:
+            console.log("[EnvironmentBuilder] refreshEnvironmentFromDB called with isUndoRedoOperation =", isUndoRedoOperation.current);
+            const savedEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, "current");
+            if (Array.isArray(savedEnv)) {
+                updateEnvironmentToMatch(savedEnv); 
+            } else {
+                clearEnvironments();
+            }
+        } catch (error) {
+            console.error("Error refreshing environment:", error);
+        }
     };
 
     const updatePreviewPosition = (position) => {
@@ -954,6 +1022,14 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         placementSettingsRef.current = placementSettings;
     }, [placementSettings]);
 
+    // Let UndoRedoManager explicitly set isUndoRedoOperation:
+    const beginUndoRedoOperation = () => {
+        isUndoRedoOperation.current = true;
+    };
+    const endUndoRedoOperation = () => {
+        isUndoRedoOperation.current = false;
+    };
+
     useImperativeHandle(ref, () => ({
         updateModelPreview,
         removePreview,
@@ -964,8 +1040,12 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         clearEnvironments,
         removeInstance,
         updatePreviewPosition,
+        updateEnvironmentToMatch,
         loadSavedEnvironment,
-        loadModel
+        loadModel,
+        refreshEnvironmentFromDB,
+        beginUndoRedoOperation,
+        endUndoRedoOperation,
     }), [scene, currentBlockType, placeholderMeshRef.current]);
 
     // Return null since this component doesn't need to render anything visible
