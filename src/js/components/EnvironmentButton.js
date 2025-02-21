@@ -90,12 +90,9 @@ const EnvironmentButton = ({ envType, isSelected, onSelect, onDelete }) => {
 
     const loadCachedImage = async () => {
       const cacheKey = getCacheKey();
-      console.log('Attempting to load cached image for:', cacheKey);
-      
       try {
         const cachedImage = await DatabaseManager.getData(STORES.PREVIEWS, cacheKey);
         if (cachedImage && cachedImage.startsWith('data:image/')) {
-          console.log('Found cached image for:', cacheKey);
           setImageUrl(cachedImage);
           return true;
         }
