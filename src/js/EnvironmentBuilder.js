@@ -416,20 +416,17 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
     const updateEnvironmentToMatch = (targetState) => {
         try {
             isUndoRedoOperation.current = true;
+            
             // Create maps for efficient lookups
-            const currentObjects = new Map(); // Map<uniqueId, {modelUrl, instanceId, position, rotation, scale}>
-            const targetObjects = new Map(); // Map<uniqueId, {name, position, rotation, scale}>
+            const currentObjects = new Map(); // Map<instanceId, {modelUrl, position, rotation, scale}>
+            const targetObjects = new Map(); // Map<instanceId, {modelUrl, position, rotation, scale}>
 
             // Build current state map
             for (const [modelUrl, instancedData] of instancedMeshes.current) {
-                const modelType = environmentModels.find(model => model.modelUrl === modelUrl);
                 instancedData.instances.forEach((data, instanceId) => {
-                    // Create unique ID based on position (since that's likely unique)
-                    const uniqueId = `${data.position.x.toFixed(3)},${data.position.y.toFixed(3)},${data.position.z.toFixed(3)}`;
-                    currentObjects.set(uniqueId, {
+                    currentObjects.set(instanceId, {
                         modelUrl,
                         instanceId,
-                        name: modelType?.name,
                         position: data.position,
                         rotation: data.rotation,
                         scale: data.scale
@@ -439,8 +436,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
             // Build target state map
             targetState.forEach(obj => {
-                const uniqueId = `${obj.position.x.toFixed(3)},${obj.position.y.toFixed(3)},${obj.position.z.toFixed(3)}`;
-                targetObjects.set(uniqueId, {
+                targetObjects.set(obj.instanceId, {
                     ...obj,
                     position: new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z),
                     rotation: new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z),
@@ -448,88 +444,31 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
                 });
             });
 
-            // Find objects to remove (in current but not in target)
-            const toRemove = [];
-            currentObjects.forEach((obj, uniqueId) => {
-                if (!targetObjects.has(uniqueId)) {
-                    toRemove.push({
-                        modelUrl: obj.modelUrl,
-                        instanceId: obj.instanceId
-                    });
+            // Remove objects not in target state
+            for (const [instanceId, obj] of currentObjects) {
+                if (!targetObjects.has(instanceId)) {
+                    removeInstance(obj.modelUrl, instanceId);
                 }
-            });
+            }
 
-            // Find objects to add (in target but not in current)
-            const toAdd = [];
-            targetObjects.forEach((obj, uniqueId) => {
-                if (!currentObjects.has(uniqueId)) {
-                    toAdd.push(obj);
-                }
-            });
-
-            // Find objects to update (in both but with different properties)
-            const toUpdate = [];
-            targetObjects.forEach((targetObj, uniqueId) => {
-                const currentObj = currentObjects.get(uniqueId);
-                if (currentObj) {
-                    // Check if properties are different
-                    const needsUpdate = 
-                        !targetObj.rotation.equals(currentObj.rotation) ||
-                        !targetObj.scale.equals(currentObj.scale) ||
-                        targetObj.name !== currentObj.name;
-
-                    if (needsUpdate) {
-                        toUpdate.push({
-                            remove: {
-                                modelUrl: currentObj.modelUrl,
-                                instanceId: currentObj.instanceId
-                            },
-                            add: targetObj
-                        });
+            // Add/update objects in target state
+            for (const [instanceId, obj] of targetObjects) {
+                if (!currentObjects.has(instanceId)) {
+                    // Add new object
+                    const modelType = environmentModels.find(model => model.modelUrl === obj.modelUrl);
+                    if (modelType) {
+                        const tempMesh = new THREE.Object3D();
+                        tempMesh.position.copy(obj.position);
+                        tempMesh.rotation.copy(obj.rotation);
+                        tempMesh.scale.copy(obj.scale);
+                        placeEnvironmentModelWithoutSaving(modelType, tempMesh, instanceId);
                     }
                 }
-            });
-
-            // Apply changes
-            // 1. Remove objects
-            for (const obj of toRemove) {
-                removeInstance(obj.modelUrl, obj.instanceId);
             }
 
-            // 2. Handle updates (remove + add)
-            for (const update of toUpdate) {
-                removeInstance(update.remove.modelUrl, update.remove.instanceId);
-                
-                const modelType = environmentModels.find(model => model.name === update.add.name);
-                if (modelType) {
-                    const tempMesh = new THREE.Object3D();
-                    tempMesh.position.copy(update.add.position);
-                    tempMesh.rotation.copy(update.add.rotation);
-                    tempMesh.scale.copy(update.add.scale);
-                    placeEnvironmentModelWithoutSaving({ ...modelType, isEnvironment: true }, tempMesh);
-                }
-            }
-
-            // 3. Add new objects
-            for (const obj of toAdd) {
-                const modelType = environmentModels.find(model => model.name === obj.name);
-                if (modelType) {
-                    const tempMesh = new THREE.Object3D();
-                    tempMesh.position.copy(obj.position);
-                    tempMesh.rotation.copy(obj.rotation);
-                    tempMesh.scale.copy(obj.scale);
-                    placeEnvironmentModelWithoutSaving({ ...modelType, isEnvironment: true }, tempMesh);
-                }
-            }
-
-            // Save to DB and update UI
+            // Update UI
             updateLocalStorage();
-            setTotalEnvironmentObjects(targetState.length);
-
-            console.log(`Environment update complete:
-                Removed: ${toRemove.length} objects
-                Updated: ${toUpdate.length} objects
-                Added: ${toAdd.length} objects`);
+            setTotalEnvironmentObjects(targetObjects.size);
 
         } catch (error) {
             console.error('Error updating environment:', error);
@@ -670,34 +609,25 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             return;
         }
 
-        // Snapshots BEFORE adding anything
-        // (We only track the new objects as "added". For more advanced logic,
-        // you could store the entire environment for a diff-based approach.)
-        const environmentBefore = [...(instancedData.instances.values())]
-            .map(v => ({ // make a quick JSON-serializable copy
-                position: { x: v.position.x, y: v.position.y, z: v.position.z },
-                rotation: { x: v.rotation.x, y: v.rotation.y, z: v.rotation.z },
-                scale: { x: v.scale.x, y: v.scale.y, z: v.scale.z }
-            }));
-        
-        // 1) Use the transform stored in lastPreviewTransform.current
-        const transform = lastPreviewTransform.current;
-        const position = placeholderMeshRef.current.position.clone();
+        // Get all placement positions based on current placement size
+        const placementPositions = getPlacementPositions(placeholderMeshRef.current.position, placementSizeRef.current);
+        const addedObjects = [];
 
-        const matrix = new THREE.Matrix4();
-        matrix.compose(
-            position,
-            new THREE.Quaternion().setFromEuler(transform.rotation),
-            transform.scale
-        );
-
-        const instanceId = instancedData.instances.size;
-        
-        // Check and expand capacity before processing meshes
+        // Check and expand capacity for all objects we're about to place
+        const totalNeededInstances = instancedData.instances.size + placementPositions.length;
         const currentCapacity = instancedData.meshes[0]?.instanceMatrix.count || 0;
-        if (instanceId >= currentCapacity) {
-            console.log(`Need to expand: instanceId ${instanceId} >= capacity ${currentCapacity}`);
-            expandInstancedMeshCapacity(modelUrl);
+        
+        // Get the starting instance ID
+        let nextInstanceId = instancedData.instances.size;
+        
+        // Ensure we have a set of all existing IDs to avoid conflicts
+        const existingIds = new Set(instancedData.instances.keys());
+        
+        if (totalNeededInstances > currentCapacity) {
+            console.log(`Need to expand: total needed ${totalNeededInstances} > capacity ${currentCapacity}`);
+            // Expand to double what we need to reduce future expansions
+            const newCapacity = Math.max(totalNeededInstances * 2, currentCapacity * 2);
+            expandInstancedMeshCapacity(modelUrl, newCapacity);
             // Re-fetch instancedData after expansion
             instancedData = instancedMeshes.current.get(modelUrl);
             if (!instancedData || !instancedData.meshes.length) {
@@ -706,46 +636,69 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             }
         }
 
-        // Now process all meshes with the expanded capacity
-        instancedData.meshes.forEach(mesh => {
-            if (!mesh) {
-                console.error('Invalid mesh encountered');
-                return;
+        // Place an object at each position
+        placementPositions.forEach(placementPosition => {
+            // Find next available ID
+            while (existingIds.has(nextInstanceId)) {
+                nextInstanceId++;
             }
-            mesh.count++;
-            mesh.setMatrixAt(instanceId, matrix);
-            mesh.instanceMatrix.needsUpdate = true;
+            const instanceId = nextInstanceId;
+            existingIds.add(instanceId);
+            nextInstanceId++;
+
+            // Use the transform stored in lastPreviewTransform.current
+            const transform = getPlacementTransform();
+            const position = new THREE.Vector3(placementPosition.x, placementPosition.y, placementPosition.z);
+
+            const matrix = new THREE.Matrix4();
+            matrix.compose(
+                position,
+                new THREE.Quaternion().setFromEuler(transform.rotation),
+                transform.scale
+            );
+
+            // Process all meshes
+            instancedData.meshes.forEach(mesh => {
+                if (!mesh) {
+                    console.error('Invalid mesh encountered');
+                    return;
+                }
+                mesh.count = Math.max(mesh.count, instanceId + 1);
+                mesh.setMatrixAt(instanceId, matrix);
+                mesh.instanceMatrix.needsUpdate = true;
+            });
+
+            // Record the added object
+            const newObject = {
+                modelUrl,
+                instanceId, // Include instanceId in the saved object
+                position: { x: position.x, y: position.y, z: position.z },
+                rotation: { x: transform.rotation.x, y: transform.rotation.y, z: transform.rotation.z },
+                scale: { x: transform.scale.x, y: transform.scale.y, z: transform.scale.z },
+            };
+            addedObjects.push(newObject);
+
+            // Save instance data
+            instancedData.instances.set(instanceId, {
+                position: position.clone(),
+                rotation: transform.rotation.clone(),
+                scale: transform.scale.clone(),
+                matrix: matrix.clone()
+            });
         });
 
-        // Once done, record which object we actually added
-        const newObject = {
-            modelUrl,
-            position: { x: position.x, y: position.y, z: position.z },
-            rotation: { x: transform.rotation.x, y: transform.rotation.y, z: transform.rotation.z },
-            scale: { x: transform.scale.x, y: transform.scale.y, z: transform.scale.z },
-        }
-
-        // This environment is "added"
+        // Save all changes to undo state at once
         const changes = {
-            terrain: { added: {}, removed: {}}, // no terrain changes
-            environment: { added: [newObject], removed: [] },
+            terrain: { added: {}, removed: {} }, // no terrain changes
+            environment: { added: addedObjects, removed: [] },
         };
-        // Save it
         undoRedoManager.saveUndo(changes);
-
-        // Save instance data
-        instancedData.instances.set(instanceId, {
-            position: position.clone(),
-            rotation: transform.rotation.clone(),
-            scale: transform.scale.clone(),
-            matrix: matrix.clone()
-        });
 
         // Save to DB, update UI counts
         updateLocalStorage();
-        setTotalEnvironmentObjects(prev => prev + 1);
+        setTotalEnvironmentObjects(prev => prev + placementPositions.length);
 
-        // 3) Re-randomize for the *next* placement
+        // Re-randomize for the next placement if needed
         if (placementSettingsRef.current?.randomScale || placementSettingsRef.current?.randomRotation) {
             const nextTransform = getPlacementTransform();
             lastPreviewTransform.current = nextTransform;
@@ -755,13 +708,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             placeholderMeshRef.current.rotation.copy(nextTransform.rotation);
         }
         
-        return {
-            modelUrl,
-            instanceId,
-            position,
-            rotation: transform.rotation,
-            scale: transform.scale
-        };
+        return addedObjects;
     };
 
     /// updates the local storage with the current environment
@@ -792,11 +739,15 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
     /// expands the capacity of an instanced mesh, used when rebuilding the environment
     /// and also when adding an object to the environment
-    const expandInstancedMeshCapacity = (modelUrl) => {
+    const expandInstancedMeshCapacity = (modelUrl, newCapacity) => {
         const instancedData = instancedMeshes.current.get(modelUrl);
         if (!instancedData || !instancedData.meshes.length) return;
 
-        const newCapacity = Math.max(10, instancedData.instances.size * 2);
+        // If no specific capacity provided, double the current capacity
+        if (!newCapacity) {
+            newCapacity = Math.max(10, instancedData.instances.size * 2);
+        }
+        
         console.log(`Expanding capacity for ${modelUrl} from ${instancedData.meshes[0]?.instanceMatrix.count} to ${newCapacity}`);
 
         const newMeshes = instancedData.meshes.map(oldMesh => {
@@ -846,38 +797,104 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         console.log(`After expansion: ${instancedData.meshes[0]?.count} instances in mesh`);
     };
 
+    /// gets the placement positions, used when adding an object to the environment
+    const getPlacementPositions = (centerPos, placementSize) => {
+		const positions = [];
+
+		// Always include center position
+		positions.push({ ...centerPos });
+
+		switch (placementSize) {
+			default:
+			case "single":
+				break;
+
+			case "cross":
+				positions.push({ x: centerPos.x + 1, y: centerPos.y, z: centerPos.z }, { x: centerPos.x - 1, y: centerPos.y, z: centerPos.z }, { x: centerPos.x, y: centerPos.y, z: centerPos.z + 1 }, { x: centerPos.x, y: centerPos.y, z: centerPos.z - 1 });
+				break;
+
+			case "diamond":
+				// 13-block diamond pattern
+				positions.push(
+					// Inner cardinal positions (4 blocks)
+					{ x: centerPos.x + 1, y: centerPos.y, z: centerPos.z },
+					{ x: centerPos.x - 1, y: centerPos.y, z: centerPos.z },
+					{ x: centerPos.x, y: centerPos.y, z: centerPos.z + 1 },
+					{ x: centerPos.x, y: centerPos.y, z: centerPos.z - 1 },
+					// Middle diagonal positions (4 blocks)
+					{ x: centerPos.x + 1, y: centerPos.y, z: centerPos.z + 1 },
+					{ x: centerPos.x + 1, y: centerPos.y, z: centerPos.z - 1 },
+					{ x: centerPos.x - 1, y: centerPos.y, z: centerPos.z + 1 },
+					{ x: centerPos.x - 1, y: centerPos.y, z: centerPos.z - 1 },
+					// Outer cardinal positions (4 blocks)
+					{ x: centerPos.x + 2, y: centerPos.y, z: centerPos.z },
+					{ x: centerPos.x - 2, y: centerPos.y, z: centerPos.z },
+					{ x: centerPos.x, y: centerPos.y, z: centerPos.z + 2 },
+					{ x: centerPos.x, y: centerPos.y, z: centerPos.z - 2 }
+				);
+				break;
+
+			case "square9":
+				for (let x = -1; x <= 1; x++) {
+					for (let z = -1; z <= 1; z++) {
+						if (x !== 0 || z !== 0) {
+							// Skip center as it's already added
+							positions.push({
+								x: centerPos.x + x,
+								y: centerPos.y,
+								z: centerPos.z + z,
+							});
+						}
+					}
+				}
+				break;
+
+			case "square16":
+				for (let x = -2; x <= 1; x++) {
+					for (let z = -2; z <= 1; z++) {
+						if (x !== 0 || z !== 0) {
+							// Skip center as it's already added
+							positions.push({
+								x: centerPos.x + x,
+								y: centerPos.y,
+								z: centerPos.z + z,
+							});
+						}
+					}
+				}
+				break;
+		}
+
+		return positions;
+	};
+
     /// removes an instance from the instanced mesh, used in rebuilding the environment
     /// and also when removing an object from the environment
     const removeInstance = (modelUrl, instanceId) => {
         const instancedData = instancedMeshes.current.get(modelUrl);
-        if (!instancedData || !instancedData.instances.has(instanceId)) return;
-
-        // Identify the object we're removing, for Undo data
-        const objectData = instancedData.instances.get(instanceId);
-
-        // Move last instance to this slot if it's not the last one
-        const lastInstanceId = Array.from(instancedData.instances.keys()).pop();
-        
-        if (instanceId !== lastInstanceId) {
-            const lastInstance = instancedData.instances.get(lastInstanceId);
-            instancedData.meshes.forEach(mesh => {
-                mesh.setMatrixAt(instanceId, lastInstance.matrix);
-                mesh.instanceMatrix.needsUpdate = true;
-            });
-            instancedData.instances.set(instanceId, lastInstance);
+        if (!instancedData || !instancedData.instances.has(instanceId)) {
+            console.warn(`Instance ${instanceId} not found for removal`);
+            return;
         }
+
+        // Get the object data before any modifications
+        const objectData = instancedData.instances.get(instanceId);
         
-        // Update all meshes
+        // Simply remove this instance - no moving of other instances
+        instancedData.instances.delete(instanceId);
+        
+        // Clear the matrix at this instance ID
         instancedData.meshes.forEach(mesh => {
-            mesh.count--;
+            mesh.setMatrixAt(instanceId, new THREE.Matrix4());
+            // Update count to be the highest remaining instance ID + 1
+            mesh.count = Math.max(...Array.from(instancedData.instances.keys()), -1) + 1;
             mesh.instanceMatrix.needsUpdate = true;
         });
-        
-        instancedData.instances.delete(lastInstanceId);
 
-        // Convert to plain object
+        // Convert to plain object for undo/redo
         const removedObject = {
             modelUrl,
+            instanceId, // Include the instanceId in removed object
             position: { x: objectData.position.x, y: objectData.position.y, z: objectData.position.z },
             rotation: { x: objectData.rotation.x, y: objectData.rotation.y, z: objectData.rotation.z },
             scale: { x: objectData.scale.x, y: objectData.scale.y, z: objectData.scale.z },

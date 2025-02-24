@@ -362,7 +362,7 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 		// Handle environment models separately
 		// we only place one environment model at a time
 		if (currentBlockTypeRef.current?.isEnvironment && isFirstBlockRef.current === true) {
-			environmentBuilderRef.current.placeEnvironmentModel();
+			environmentBuilderRef.current.placeEnvironmentModel(previewPositionRef.current.clone());
 			isFirstBlockRef.current = false;
 			return;
 		}
@@ -406,7 +406,14 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 	/// Raycast and Grid Intersection Functions ///
 
 	const getRaycastIntersection = (raycastOrigin) => {
-		const raycastIntersects = raycastOrigin.intersectObjects(scene.children);
+		// Filter out environment objects from raycast intersections
+		const raycastIntersects = raycastOrigin.intersectObjects(
+			scene.children.filter(obj => {
+				// Only include instanced meshes (blocks) and the shadow plane
+				return obj.blockType?.isEnvironment === false || obj === shadowPlaneRef.current;
+			})
+		);
+		
 		if (!raycastIntersects.length) return null;
 
 		let rayHitBlock = null;
