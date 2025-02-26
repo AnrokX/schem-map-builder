@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { FaPlus, FaMinus, FaCube, FaBorderStyle, FaLock, FaLockOpen, FaUndo, FaRedo, FaExpand, FaTrash, FaCircle, FaSquare, FaMountain } from "react-icons/fa";
 import Tooltip from "../components/Tooltip";
 import { DatabaseManager, STORES } from "../DatabaseManager";
-import { generatePerlinNoise } from "perlin-noise";
 import "../../css/ToolBar.css";
 import JSZip from "jszip";
 import { environmentModels } from "../EnvironmentBuilder";
@@ -166,8 +165,8 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 
 		// Generate noise map with proper scale and amplitude
-		const noiseMap = generatePerlinNoise(width, length, {
-			amplitude: 1, // Keep amplitude at 1 for normalized values
+		const noiseMap = generateNoise(width, length, {
+			amplitude: height, // Keep amplitude at 1 for normalized values
 			scale: scale / 100, // Scale affects frequency of features
 			octaves: 4, // Number of noise layers
 			persistence: roughness / 100, // How much each octave contributes
@@ -483,6 +482,43 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			alert("Error exporting map. Please try again.");
 		}
 	};
+
+	// Replace the import with this simple implementation
+	const generateNoise = (width, length, options = {}) => {
+		const { amplitude = 1, scale = 0.1, octaves = 4, persistence = 0.5 } = options;
+		const result = Array(width).fill().map(() => Array(length).fill(0));
+		
+		// Simple random noise function
+		const noise = (x, y) => {
+		const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+		return n - Math.floor(n);
+		};
+		
+		// Generate basic noise
+		for (let x = 0; x < width; x++) {
+		for (let z = 0; z < length; z++) {
+			let value = 0;
+			let frequency = scale;
+			let amp = 1;
+			
+			// Add octaves
+			for (let o = 0; o < octaves; o++) {
+			const sampleX = x * frequency;
+			const sampleZ = z * frequency;
+			value += noise(sampleX, sampleZ) * amp;
+			
+			amp *= persistence;
+			frequency *= 2;
+			}
+			
+			// Normalize to 0-1 range and apply amplitude
+			result[x][z] = (value / octaves) * amplitude;
+		}
+		}
+		
+		return result;
+	};
+  
 
 	const applyNewGridSize = async (newGridSize) => {
 		if (newGridSize > 10) {
