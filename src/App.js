@@ -18,6 +18,7 @@ import ToolBar from './js/components/ToolBar';
 import {DatabaseManager} from './js/DatabaseManager';
 import UnderConstruction from "./js/components/UnderConstruction";
 import UndoRedoManager from "./js/UndoRedo";
+import QuickTips from './js/components/QuickTips';
 
 function App() {
   const undoRedoManagerRef = useRef(null);
@@ -109,6 +110,8 @@ function App() {
         <p style={{ marginTop: '50px', fontSize: '12px', color: 'gray'}}>World Editor Version {version}</p>
       </div>
 
+      <QuickTips />
+
       <BlockToolsSidebar
         activeTab={activeTab}
         blockTypes={blockTypes}
@@ -164,6 +167,7 @@ function App() {
 
       <ToolBar
         terrainBuilderRef={terrainBuilderRef}
+        environmentBuilderRef={environmentBuilderRef}
         mode={mode}
         handleModeChange={setMode}
         axisLockEnabled={axisLockEnabled}
@@ -208,17 +212,6 @@ function App() {
         </div>
       </div>
 
-      <div className="controls-description">
-        W, A, S, D & Middle Mouse - Move Camera | Right Mouse - Rotate Camera |
-        Space - Move Up | Shift - Move Down
-      </div>
-      <div
-        className="controls-description"
-        style={{ marginTop: "20px", color: "green" }}
-      >
-        New Functionality: Drag and drop a block from the toolbar onto other
-        blocks to replace them.
-      </div>
       <button
         className="toolbar-button"
         onClick={async () => await DatabaseManager.clearDatabase()}

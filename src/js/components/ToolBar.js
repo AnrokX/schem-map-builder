@@ -3,12 +3,11 @@ import { FaPlus, FaMinus, FaCube, FaBorderStyle, FaLock, FaLockOpen, FaUndo, FaR
 import Tooltip from "../components/Tooltip";
 import { DatabaseManager, STORES } from "../DatabaseManager";
 import "../../css/ToolBar.css";
-import JSZip from "jszip";
-import { environmentModels } from "../EnvironmentBuilder";
-import { getBlockTypes } from "../TerrainBuilder";
-import * as THREE from "three";
-import { version } from "../Constants";
 import { generatePerlinNoise } from "perlin-noise";
+import { 
+	exportMapFile,
+	exportFullAssetPack
+} from '../ImportExport';
 
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, handleImport, handleAssetPackImport, setGridSize, undoRedoManager, currentBlockType }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
@@ -151,58 +150,90 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	};
 
 	const generateTerrain = () => {
-		const { width, length, height, roughness, clearMap } = terrainSettings;
+		// Get current terrain data or start with empty object if clearing map
+		let terrainData = terrainSettings.clearMap 
+			? {} 
+			: terrainBuilderRef.current.getCurrentTerrainData();
 		
-		// Get current terrain data or start with empty object
-		let terrainData = clearMap ? {} : terrainBuilderRef.current.getCurrentTerrainData();
+		const { width, length, height, roughness } = terrainSettings;
 		
-		// Calculate scale based on roughness (70-100)
-		// For extremely smooth terrain, we need a massive scale difference
-		// Higher scale values = smoother terrain with fewer variations
-		const scale = Math.pow((100 - roughness) / 20, 3) * 10; // Cubic scaling for extreme smoothness
-		
-		// Generate noise with adjusted parameters for smoother results
-		const noiseOptions = {
+		// Generate base noise with fixed parameters
+		const baseNoiseMap = generatePerlinNoise(width, length, {
+			octaveCount: 4,
 			amplitude: 1,
-			octaves: roughness > 90 ? 1 : roughness > 80 ? 2 : 4, // Single octave for extremely smooth terrain
-			persistence: roughness > 90 ? 0.1 : roughness > 80 ? 0.3 : 0.6, // Very low persistence for smooth terrain
-			scale: scale
-		};
+			persistence: 0.5,
+			scale: 0.1 // Base scale for all terrain types
+		});
 		
-		// Generate 2D noise map
-		const noise = generatePerlinNoise(width, length, noiseOptions);
-		
-		// Calculate center offset for placement
+		// Center the terrain around origin
 		const startX = -Math.floor(width / 2);
 		const startZ = -Math.floor(length / 2);
 		
-		// Generate terrain blocks based on noise
+		// Calculate smoothing factor (0 = roughest, 1 = smoothest)
+		const smoothingFactor = roughness / 30; // Now 70 = smoothest (2.33), 100 = roughest (3.33)
+		
+		// Generate terrain based on noise
 		for (let x = 0; x < width; x++) {
 			for (let z = 0; z < length; z++) {
-				// Get noise value (0-1) and scale to desired height
-				const noiseIndex = z * width + x;
-				const noiseValue = noise[noiseIndex];
+				// Get base noise value (0-1)
+				const baseNoiseValue = baseNoiseMap[z * width + x];
 				
-				// Calculate block height (0 to max height)
-				const blockHeight = Math.floor(noiseValue * height);
+				// Apply smoothing based on roughness setting
+				// For rough terrain: use the raw noise value with exaggeration
+				// For smooth terrain: apply averaging with neighbors
+				let finalNoiseValue;
 				
-				// Place blocks from ground up to calculated height
-				for (let y = 0; y <= blockHeight; y++) {
+				if (smoothingFactor > 3.0) {
+					// Roughest terrain - exaggerate the noise to create more dramatic peaks and valleys
+					finalNoiseValue = Math.pow(baseNoiseValue, 0.6);
+				} else if (smoothingFactor > 2.7) {
+					// Medium-rough terrain - slight exaggeration
+					finalNoiseValue = Math.pow(baseNoiseValue, 0.8);
+				} else if (smoothingFactor > 2.5) {
+					// Medium terrain - use raw noise
+					finalNoiseValue = baseNoiseValue;
+				} else {
+					// Smooth terrain - use neighborhood averaging
+					let neighborSum = 0;
+					let neighborCount = 0;
+					
+					// Sample neighboring points in a radius based on smoothness
+					// Smoother = larger radius
+					const radius = Math.floor(15 - smoothingFactor * 4);
+					for (let nx = Math.max(0, x-radius); nx <= Math.min(width-1, x+radius); nx++) {
+						for (let nz = Math.max(0, z-radius); nz <= Math.min(length-1, z+radius); nz++) {
+							// Weight by distance (closer points matter more)
+							const dist = Math.sqrt(Math.pow(nx-x, 2) + Math.pow(nz-z, 2));
+							if (dist <= radius) {
+								const weight = 1 - (dist / radius);
+								neighborSum += baseNoiseMap[nz * width + nx] * weight;
+								neighborCount += weight;
+							}
+						}
+					}
+					
+					// Create smooth terrain
+					finalNoiseValue = neighborSum / neighborCount;
+				}
+				
+				// FIX: Scale to desired height range (1 to max height)
+				// Map 0-1 to 1-height
+				const terrainHeight = Math.max(1, Math.floor(1 + finalNoiseValue * (height - 1)));
+				
+				// Place blocks from y=0 up to calculated height
+				for (let y = 0; y < terrainHeight; y++) {
 					const worldX = startX + x;
-					const worldY = y;
 					const worldZ = startZ + z;
 					
-					const key = `${worldX},${worldY},${worldZ}`;
+					const key = `${worldX},${y},${worldZ}`;
 					
-					// Use current block type for the top layer, could use different blocks for layers
+					// Use current block type for all blocks
 					terrainData[key] = { ...currentBlockType };
 				}
 			}
 		}
 		
-		console.log(`Generated terrain: ${width}x${length} with max height ${height}`);
-		console.log(`Terrain roughness: ${roughness}, scale: ${scale}`);
-		console.log(`Total blocks placed: ${Object.keys(terrainData).length}`);
+		console.log(`Generated terrain: ${width}x${length} with height range 1-${height}, roughness: ${roughness}`);
 		
 		// Update terrain directly in TerrainBuilder
 		if (terrainBuilderRef.current) {
@@ -219,175 +250,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 
 	const handleExport = () => {
 		try {
-			if (!terrainBuilderRef.current.getCurrentTerrainData() || Object.keys(terrainBuilderRef.current.getCurrentTerrainData()).length === 0) {
-				alert("No map found to export!");
-				return;
-			}
-
-			const zip = new JSZip();
-			const assetsFolder = zip.folder("assets");
-			const blocksFolder = assetsFolder.folder("blocks");
-			const mapsFolder = assetsFolder.folder("maps");
-			const modelsFolder = assetsFolder.folder("models/environment");
-			const certsFolder = assetsFolder.folder("certs");
-			const soundsFolder = assetsFolder.folder("sounds");
-			const skyboxesFolder = assetsFolder.folder("skyboxes");
-
-			// Add custom GLTF models from IndexedDB
-			DatabaseManager.getData(STORES.CUSTOM_MODELS, "models")
-				.then((customModels) => {
-					customModels = customModels || [];
-					console.log("Custom models to export:", customModels);
-
-					for (const model of customModels) {
-						if (!model.data) {
-							console.warn(`No data found for model ${model.name}`);
-							continue;
-						}
-
-						const blob = new Blob([model.data], { type: "model/gltf+json" });
-						console.log(`Adding model to zip: ${model.name}.gltf`);
-						modelsFolder.file(`${model.name}.gltf`, blob);
-					}
-
-					return DatabaseManager.getData(STORES.ENVIRONMENT, "current");
-				})
-				.then((environmentObjects) => {
-					environmentObjects = environmentObjects || [];
-
-					const simplifiedTerrain = Object.entries(terrainBuilderRef.current.getCurrentTerrainData()).reduce((acc, [key, value]) => {
-						if (key.split(",").length === 3) {
-							acc[key] = value.id;
-						}
-						return acc;
-					}, {});
-
-					const allBlockTypes = getBlockTypes();
-
-					const exportData = {
-						blockTypes: Array.from(
-							new Map(
-								allBlockTypes.map((block) => [
-									block.id,
-									{
-										id: block.id,
-										name: block.name,
-										textureUri: block.isMultiTexture ? `blocks/${block.name}` : `blocks/${block.name}.png`,
-										isCustom: block.isCustom || false,
-									},
-								])
-							).values()
-						),
-						blocks: simplifiedTerrain,
-						entities: environmentObjects.reduce((acc, obj) => {
-							const entityType = environmentModels.find((model) => model.modelUrl === obj.modelUrl);
-
-							if (entityType) {
-								const quaternion = new THREE.Quaternion();
-								quaternion.setFromEuler(new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z));
-
-								const modelUri = entityType.isCustom ? `models/environment/${entityType.name}.gltf` : obj.modelUrl.replace("assets/", "");
-
-								// Calculate adjusted Y position
-								const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-								const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-								const adjustedY = obj.position.y + 0.5 + verticalOffset;
-
-								// Use adjusted Y in the key
-								const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
-
-								acc[key] = {
-									modelUri: modelUri,
-									modelLoopedAnimations: entityType.animations || ["idle"],
-									modelScale: obj.scale.x,
-									name: entityType.name,
-									rigidBodyOptions: {
-										type: "kinematic_velocity",
-										rotation: {
-											x: quaternion.x,
-											y: quaternion.y,
-											z: quaternion.z,
-											w: quaternion.w,
-										},
-									},
-								};
-							}
-							return acc;
-						}, {}),
-					};
-
-					mapsFolder.file("terrain.json", JSON.stringify(exportData, null, 2));
-					return DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks");
-				})
-				.then((customBlocks) => {
-					customBlocks = customBlocks || [];
-
-					// Add custom block textures
-					for (const block of customBlocks) {
-						const base64Data = block.textureUri.split(",")[1];
-						const binaryData = atob(base64Data);
-						const array = new Uint8Array(binaryData.length);
-						for (let i = 0; i < binaryData.length; i++) {
-							array[i] = binaryData.charCodeAt(i);
-						}
-						const blob = new Blob([array], { type: "image/png" });
-						blocksFolder.file(`${block.name}.png`, blob);
-					}
-
-					// Add default assets and generate zip
-					const files = scanDirectory();
-					const promises = [];
-					for (const filePath of files) {
-						const task = new Promise(async (resolve) => {
-							try {
-								const response = await fetch(`/assets/${filePath}`);
-								if (!response.ok) {
-									console.warn(`Failed to fetch file ${filePath}`);
-									return;
-								}
-
-								const blob = await response.blob();
-
-								// Special handling for different asset types
-								if (filePath.includes("certs/")) {
-									// Just store the cert file directly in the certs folder
-									const certFileName = filePath.split("/").pop();
-									certsFolder.file(certFileName, blob);
-								} else if (filePath.startsWith("sounds/")) {
-									soundsFolder.file(filePath.replace("sounds/", ""), blob);
-								} else if (filePath.startsWith("skyboxes/")) {
-									skyboxesFolder.file(filePath.replace("skyboxes/", ""), blob);
-								} else {
-									assetsFolder.file(filePath, blob);
-								}
-							} catch (error) {
-								console.warn(`Failed to add file ${filePath}:`, error);
-								return;
-							} finally {
-								resolve();
-							}
-						});
-						promises.push(task);
-					}
-
-					return Promise.all(promises);
-				})
-				.then(() => {
-					console.log("Folders in zip:", Object.keys(zip.files));
-					return zip.generateAsync({ type: "blob" });
-				})
-				.then((content) => {
-					const url = URL.createObjectURL(content);
-					const a = document.createElement("a");
-					a.href = url;
-					a.download = "hytopia_build_" + version + "_assets.zip";
-					a.click();
-					URL.revokeObjectURL(url);
-				})
-				.catch((error) => {
-					console.error("Error exporting map:", error);
-					alert("Error exporting map. Please try again.");
-				});
+			exportFullAssetPack(terrainBuilderRef);
 		} catch (error) {
 			console.error("Error exporting map:", error);
 			alert("Error exporting map. Please try again.");
@@ -396,89 +259,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 
 	const handleExportMap = () => {
 		try {
-			if (!terrainBuilderRef.current.getCurrentTerrainData() || Object.keys(terrainBuilderRef.current.getCurrentTerrainData()).length === 0) {
-				alert("No map found to export!");
-				return;
-			}
-
-			DatabaseManager.getData(STORES.ENVIRONMENT, "current")
-				.then((environmentObjects) => {
-					environmentObjects = environmentObjects || [];
-
-					const simplifiedTerrain = Object.entries(terrainBuilderRef.current.getCurrentTerrainData()).reduce((acc, [key, value]) => {
-						if (key.split(",").length === 3) {
-							acc[key] = value.id;
-						}
-						return acc;
-					}, {});
-
-					const allBlockTypes = getBlockTypes();
-
-					const exportData = {
-						blockTypes: Array.from(
-							new Map(
-								allBlockTypes.map((block) => [
-									block.id,
-									{
-										id: block.id,
-										name: block.name,
-										textureUri: block.isMultiTexture ? `blocks/${block.name}` : `blocks/${block.name}.png`,
-										isCustom: block.isCustom || false,
-									},
-								])
-							).values()
-						),
-						blocks: simplifiedTerrain,
-						entities: environmentObjects.reduce((acc, obj) => {
-							const entityType = environmentModels.find((model) => model.modelUrl === obj.modelUrl);
-
-							if (entityType) {
-								const quaternion = new THREE.Quaternion();
-								quaternion.setFromEuler(new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z));
-
-								const modelUri = entityType.isCustom ? `models/environment/${entityType.name}.gltf` : obj.modelUrl.replace("assets/", "");
-
-								// Calculate adjusted Y position
-								const boundingBoxHeight = entityType.boundingBoxHeight || 1;
-								const verticalOffset = (boundingBoxHeight * obj.scale.y) / 2;
-								const adjustedY = obj.position.y + 0.5 + verticalOffset;
-
-								// Use adjusted Y in the key
-								const key = `${obj.position.x},${adjustedY},${obj.position.z}`;
-
-								acc[key] = {
-									modelUri: modelUri,
-									modelLoopedAnimations: entityType.animations || ["idle"],
-									modelScale: obj.scale.x,
-									name: entityType.name,
-									rigidBodyOptions: {
-										type: "kinematic_velocity",
-										rotation: {
-											x: quaternion.x,
-											y: quaternion.y,
-											z: quaternion.z,
-											w: quaternion.w,
-										},
-									},
-								};
-							}
-							return acc;
-						}, {}),
-					};
-
-					const jsonContent = JSON.stringify(exportData, null, 2);
-					const blob = new Blob([jsonContent], { type: "application/json" });
-					const url = URL.createObjectURL(blob);
-					const a = document.createElement("a");
-					a.href = url;
-					a.download = "terrain.json";
-					a.click();
-					URL.revokeObjectURL(url);
-				})
-				.catch((error) => {
-					console.error("Error exporting map:", error);
-					alert("Error exporting map. Please try again.");
-				});
+			exportMapFile(terrainBuilderRef);
 		} catch (error) {
 			console.error("Error exporting map:", error);
 			alert("Error exporting map. Please try again.");
