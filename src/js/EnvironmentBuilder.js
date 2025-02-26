@@ -159,8 +159,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         } catch (error) {
             console.error('Error loading custom models from DB:', error);
         }
-
-        console.log("Models preloaded: ", loadedModels.current);
     };
     
     const setupInstancedMesh = (modelType, gltf) => {
@@ -248,7 +246,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         // Create instanced meshes with appropriate initial capacity
         getSavedEnvironmentCount().then(savedCount => {
             const initialCapacity = Math.max(10, savedCount * 2); // Use double the saved count or 10, whichever is larger
-            console.log(`Setting up ${modelType.name} with initial capacity: ${initialCapacity}`);
 
             const instancedMeshArray = [];
             for (const {material, geometries} of geometriesByMaterial.values()) {
@@ -514,7 +511,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         instancedData.meshes.forEach(mesh => {
             const currentCapacity = mesh.instanceMatrix.count;
             if (instanceId >= currentCapacity - 1) {
-                console.log(`Need to expand: instanceId ${instanceId} >= capacity ${currentCapacity}`);
                 expandInstancedMeshCapacity(modelUrl);
                 // Re-get the mesh as it might have been replaced
                 mesh = instancedData.meshes[instancedData.meshes.indexOf(mesh)];
@@ -624,7 +620,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         const existingIds = new Set(instancedData.instances.keys());
         
         if (totalNeededInstances > currentCapacity) {
-            console.log(`Need to expand: total needed ${totalNeededInstances} > capacity ${currentCapacity}`);
             // Expand to double what we need to reduce future expansions
             const newCapacity = Math.max(totalNeededInstances * 2, currentCapacity * 2);
             expandInstancedMeshCapacity(modelUrl, newCapacity);
@@ -747,8 +742,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         if (!newCapacity) {
             newCapacity = Math.max(10, instancedData.instances.size * 2);
         }
-        
-        console.log(`Expanding capacity for ${modelUrl} from ${instancedData.meshes[0]?.instanceMatrix.count} to ${newCapacity}`);
 
         const newMeshes = instancedData.meshes.map(oldMesh => {
             // Create new mesh with increased capacity
@@ -793,8 +786,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         instancedData.meshes = newMeshes;
         instancedMeshes.current.set(modelUrl, instancedData);
 
-        // Verify the expansion
-        console.log(`After expansion: ${instancedData.meshes[0]?.count} instances in mesh`);
     };
 
     /// gets the placement positions, used when adding an object to the environment
@@ -916,7 +907,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
     const refreshEnvironmentFromDB = async () => {
         try {
             // If you want to double-check the flag:
-            console.log("[EnvironmentBuilder] refreshEnvironmentFromDB called with isUndoRedoOperation =", isUndoRedoOperation.current);
             const savedEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, "current");
             if (Array.isArray(savedEnv)) {
                 updateEnvironmentToMatch(savedEnv); 
@@ -938,7 +928,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
     const removePreview = () => {
 
-        console.log("removing ENVIRONMENTpreview");
         if (placeholderMeshRef.current) {
             // Remove from scene
             scene.remove(placeholderMeshRef.current);
@@ -1014,7 +1003,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
     // Add effect to update preview when settings change
     useEffect(() => {
-        console.log('Updating preview rotation and scale, placement settings:', placementSettings);
         if (placeholderMeshRef.current && currentBlockType?.isEnvironment) {
             const transform = getPlacementTransform();
             

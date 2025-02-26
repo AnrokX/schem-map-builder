@@ -288,3 +288,8 @@ button.active {
   width: 8px;
   height: 100%;
 }
+
+.control-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

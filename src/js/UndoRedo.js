@@ -164,20 +164,15 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
     try {
       const redoStates = await DatabaseManager.getData(STORES.REDO, 'states') || [];
       if (redoStates.length === 0) {
-        console.log('[REDO] No redo states available');
         return null;
       }
 
       const [currentRedo, ...remainingRedo] = redoStates;
       const undoStates = await DatabaseManager.getData(STORES.UNDO, 'states') || [];
 
-      console.log('[REDO] Processing redo state:', currentRedo);
-
       // Get current terrain and environment
       const currentTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
       const currentEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current') || [];
-
-      console.log('[REDO] Current environment state:', currentEnv);
 
       // Apply redo changes
       let newTerrain = { ...currentTerrain };
@@ -195,7 +190,6 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
       }
 
       if (currentRedo.environment) {
-        console.log('[REDO] Applying environment changes:', currentRedo.environment);
 
         // Remove any objects that were originally removed — with ±0.001
         if (currentRedo.environment.removed?.length > 0) {
@@ -215,8 +209,6 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
         }
       }
 
-      console.log('[REDO] New environment state:', newEnvironment);
-
       // Prepare undo state for the re-applied changes
       const undoChanges = {
         terrain: currentRedo.terrain
@@ -233,7 +225,6 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
           : null
       };
 
-      console.log('[REDO] Saving new states to database...');
       await Promise.all([
         DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain),
         DatabaseManager.saveData(STORES.ENVIRONMENT, 'current', newEnvironment),
@@ -242,9 +233,6 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
       ]);
 
       const updatedEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
-      console.log('[REDO] environment in DB after save:', updatedEnv);
-
-      console.log('[REDO] Database updates complete');
       return currentRedo;
     } catch (error) {
       console.error('Error during redo:', error);
@@ -258,11 +246,9 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
       // Re-apply from DB
       if (terrainBuilderRef?.current?.refreshTerrainFromDB) {
         await terrainBuilderRef.current.refreshTerrainFromDB();
-        console.log('Terrain refreshed from DB');
       }
       if (environmentBuilderRef?.current?.refreshEnvironmentFromDB) {
         await environmentBuilderRef.current.refreshEnvironmentFromDB();
-        console.log('Environment refreshed from DB');
       }
     }
   };

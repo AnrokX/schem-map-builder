@@ -73,7 +73,7 @@ export const getBlockTypes = () => blockTypesArray;
 // Export the initial blockTypes for backward compatibility
 export const blockTypes = blockTypesArray;
 
-function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToAppJS, currentBlockType, undoRedoManager, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
+function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType, undoRedoManager, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
 
 	// Scene setup
 	const { camera, scene, raycaster, mouse, gl } = useThree();
@@ -122,6 +122,7 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 
 	/// define buildUpdateTerrain to update the terrain
 	const buildUpdateTerrain = () => {
+		console.log("building update terrain: called");
 
 		if (!scene || !meshesInitializedRef.current){
 			console.log("building update terrain: not ready");
@@ -181,9 +182,6 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 
 		// Update UI block counts
 		blockCountsRef.current = blockCountsByType.length;
-
-		// send terrain state to app.js so other components can use it
-		setAppJSTerrainState(terrainRef.current);
 
 		// Update block counts
 		blockCountsRef.current = blockCountsByType;
@@ -336,7 +334,6 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 
 	const handleMouseDown = (event) => {
 		if (event.button === 0) {
-			console.log("Mouse Down");
 			isPlacingRef.current = true;
 			isFirstBlockRef.current = true;
 			currentPlacingYRef.current = previewPositionRef.current.y;
@@ -406,21 +403,17 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 	/// Raycast and Grid Intersection Functions ///
 
 	const getRaycastIntersection = (raycastOrigin) => {
-		// Filter out environment objects from raycast intersections
-		const raycastIntersects = raycastOrigin.intersectObjects(
-			scene.children.filter(obj => {
-				// Only include instanced meshes (blocks) and the shadow plane
-				return obj.blockType?.isEnvironment === false || obj === shadowPlaneRef.current;
-			})
-		);
+		// Remove the filtering that's causing problems
+		const raycastIntersects = raycastOrigin.intersectObjects(scene.children);
 		
 		if (!raycastIntersects.length) return null;
 
+		// First, try to find a valid block intersection
 		let rayHitBlock = null;
 		let rayHitShadowPlane = null;
 
+		// First pass: find any block intersection and the shadow plane
 		for (const intersect of raycastIntersects) {
-			// Skip if this is a recently placed block position
 			if (intersect.object.isInstancedMesh) {
 				const blockPos = new THREE.Vector3().copy(intersect.point).sub(intersect.face.normal.multiplyScalar(0.5));
 				const roundedPos = new THREE.Vector3(
@@ -432,19 +425,21 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 				const posKey = `${roundedPos.x},${roundedPos.y},${roundedPos.z}`;
 				if (!recentlyPlacedBlocksRef.current.has(posKey)) {
 					rayHitBlock = intersect;
-					break;
+					break; // Found a valid block intersection, no need to check further
 				}
 			} else if (intersect.object === shadowPlaneRef.current) {
 				rayHitShadowPlane = intersect;
 			}
 		}
 
+		// Always prioritize block intersections over shadow plane
 		if (rayHitBlock) {
 			return {
 				point: rayHitBlock.point,
 				normal: rayHitBlock.face.normal,
 			};
 		}
+		
 		if (rayHitShadowPlane) {
 			const startingPosition = new THREE.Vector3(rayHitShadowPlane.point.x, 0, rayHitShadowPlane.point.z);
 			return {
@@ -513,32 +508,42 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 		const intersection = getRaycastIntersection(raycaster);
 
 		if (!intersection) {
-			previewPositionRef.current.set(0, 0, 0);
+			// Don't update if we don't have an intersection
+			// This prevents the preview from disappearing during jitter
 			return;
 		}
 
 		if (!currentBlockTypeRef?.current?.isEnvironment) {
 			// Reuse vector for grid position calculation
 			tempVectorRef.current.copy(intersection.point);
+			
+			// Apply mode-specific adjustments
 			if (modeRef.current === "remove") {
-				tempVectorRef.current.x = Math.round(tempVectorRef.current.x - intersection.normal.x * 5);
-				tempVectorRef.current.y = Math.round(tempVectorRef.current.y - intersection.normal.y * 5);
-				tempVectorRef.current.z = Math.round(tempVectorRef.current.z - intersection.normal.z * 5);
+				tempVectorRef.current.x = Math.round(tempVectorRef.current.x - intersection.normal.x * 0.5);
+				tempVectorRef.current.y = Math.round(tempVectorRef.current.y - intersection.normal.y * 0.5);
+				tempVectorRef.current.z = Math.round(tempVectorRef.current.z - intersection.normal.z * 0.5);
 			} else {
+				// For add mode, add a small offset in the normal direction before rounding
+				tempVectorRef.current.add(intersection.normal.clone().multiplyScalar(0.01));
 				tempVectorRef.current.x = Math.round(tempVectorRef.current.x);
 				tempVectorRef.current.y = Math.round(tempVectorRef.current.y);
 				tempVectorRef.current.z = Math.round(tempVectorRef.current.z);
 			}
 
-			if (axisLockEnabled && lockedAxisRef.current && placementStartPosition.current) {
-				applyAxisLock(tempVectorRef.current, placementStartPosition.current, lockedAxisRef.current);
+			// Apply axis lock if needed
+			if (axisLockEnabledRef.current && lockedAxisRef.current && placementStartPosition.current) {
+				const constrained = placementStartPosition.current.clone();
+				constrained[lockedAxisRef.current] = tempVectorRef.current[lockedAxisRef.current];
+				tempVectorRef.current.copy(constrained);
 			}
 
+			// Maintain Y position during placement
 			if (isPlacingRef.current) {
 				tempVectorRef.current.y = currentPlacingYRef.current;
 			}
 
-			// Check movement threshold using cached vectors
+			// Check if we've moved enough to update the preview position
+			// This adds hysteresis to prevent small jitters
 			if (!isFirstBlockRef.current && isPlacingRef.current) {
 				tempVec2Ref.current.set(lastPreviewPositionRef.current.x, lastPreviewPositionRef.current.z);
 				tempVec2_2Ref.current.set(intersection.point.x, intersection.point.z);
@@ -547,11 +552,15 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 				}
 			}
 
-			previewPositionRef.current.copy(tempVectorRef.current);
-			lastPreviewPositionRef.current.copy(intersection.point);
-			setPreviewPosition(previewPositionRef.current);
-			updateDebugInfo();
+			// Only update if the position has actually changed
+			if (!previewPositionRef.current.equals(tempVectorRef.current)) {
+				previewPositionRef.current.copy(tempVectorRef.current);
+				lastPreviewPositionRef.current.copy(intersection.point);
+				setPreviewPosition(previewPositionRef.current.clone());
+				updateDebugInfo();
+			}
 		} else {
+			// Handle environment objects
 			previewPositionRef.current.copy(intersection.point);
 			lastPreviewPositionRef.current.copy(intersection.point);
 			setPreviewPosition(intersection.point);
@@ -737,7 +746,16 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 		});
 	}, [customBlocks, scene]);
 
-	// Update grid size
+	const getCurrentTerrainData = () => {
+		return terrainRef.current;
+	};
+
+	const updateTerrainFromToolBar = (terrainData) => {
+		terrainRef.current = terrainData;
+		buildUpdateTerrain();
+	};
+
+	// Update
 	const updateGridSize = (newGridSize) => {
 		if (gridRef.current) {
 			// Get grid size from localStorage or use default value
@@ -768,16 +786,30 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 
 	const clearMap = () => {
 		if (window.confirm("Are you sure you want to clear the entire map?")) {
+			// Clear environment data first
 			DatabaseManager.clearStore(STORES.ENVIRONMENT)
 				.then(() => {
-				// Trigger terrain update after clearing
-				environmentBuilderRef.current.clearEnvironments();
-				DatabaseManager.clearStore(STORES.TERRAIN)
-					.then(() => {
-						terrainRef.current = {};
-						buildUpdateTerrain();
-						totalBlocksRef.current = 0;
-					});
+					// Clear environment objects
+					environmentBuilderRef.current.clearEnvironments();
+					
+					// Clear terrain data
+					return DatabaseManager.clearStore(STORES.TERRAIN);
+				})
+				.then(() => {
+					// Clear undo/redo history
+					return Promise.all([
+						DatabaseManager.saveData(STORES.UNDO, "states", []),
+						DatabaseManager.saveData(STORES.REDO, "states", [])
+					]);
+				})
+				.then(() => {
+					// Update local terrain state
+					terrainRef.current = {};
+					buildUpdateTerrain();
+					totalBlocksRef.current = 0;
+				})
+				.catch(error => {
+					console.error("Error clearing map data:", error);
 				});
 		}
 	}
@@ -949,6 +981,8 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 	// Expose buildUpdateTerrain and clearMap via ref
 	React.useImperativeHandle(ref, () => ({
 		buildUpdateTerrain,
+		updateTerrainFromToolBar,
+		getCurrentTerrainData,
 		clearMap,
 		/**
 		 * Force a DB reload of terrain and then rebuild it
@@ -1087,3 +1121,5 @@ function TerrainBuilder({ setAppJSTerrainState, onSceneReady, previewPositionToA
 
 // Convert to forwardRef
 export default forwardRef(TerrainBuilder);
+
+

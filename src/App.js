@@ -1,7 +1,7 @@
-import React, {useState, useRef} from "react";
+import React, {useState, useRef, useEffect} from "react";
 import { Canvas } from "@react-three/fiber";
 import TerrainBuilder, {blockTypes} from "./js/TerrainBuilder";
-import EnvironmentBuilder from "./js/EnvironmentBuilder";
+import EnvironmentBuilder, {environmentModels} from "./js/EnvironmentBuilder";
 import {
   FaCamera,
   FaVolumeMute,
@@ -20,7 +20,6 @@ import UnderConstruction from "./js/components/UnderConstruction";
 import UndoRedoManager from "./js/UndoRedo";
 
 function App() {
-  const [terrain, setTerrainState] = useState({});
   const undoRedoManagerRef = useRef(null);
   const [currentBlockType, setCurrentBlockType] = useState(blockTypes[0]);
   const [mode, setMode] = useState("add");
@@ -51,6 +50,35 @@ function App() {
     scale: 1.0,
     rotation: 0
   });
+
+  useEffect(() => {
+    const loadSavedToolSelection = () => {
+      const savedBlockId = localStorage.getItem("selectedBlock");
+      if (savedBlockId) {
+        const blockId = parseInt(savedBlockId);
+        
+        if (blockId < 200) {
+          const block = [...blockTypes, ...customBlocks].find(b => b.id === blockId);
+          if (block) {
+            setCurrentBlockType(block);
+            setActiveTab("blocks");
+          }
+        } else {
+          if (environmentModels && environmentModels.length > 0) {
+            const envModel = environmentModels.find(m => m.id === blockId);
+            if (envModel) {
+              setCurrentBlockType({...envModel, isEnvironment: true});
+              setActiveTab("environment");
+            }
+          }
+        }
+      }
+    };
+
+    if (pageIsLoaded) {
+      loadSavedToolSelection();
+    }
+  }, [customBlocks, pageIsLoaded]);
 
   /// this listens for the state change of the block type and updates the current block type
   const handleBlockTypeChange = (newBlockType) => {
@@ -87,7 +115,6 @@ function App() {
         customBlocks={customBlocks}
         setCustomBlocks={setCustomBlocks}
         setCurrentBlockType={handleBlockTypeChange}
-        updateTerrainWithHistory={setTerrainState}
         setActiveTab={setActiveTab}
         environmentBuilderRef={environmentBuilderRef}
         onPlacementSettingsChange={setPlacementSettings}
@@ -96,7 +123,6 @@ function App() {
       <Canvas shadows className="canvas-container">
         <TerrainBuilder
           ref={terrainBuilderRef}
-          setAppJSTerrainState={setTerrainState}
           currentBlockType={currentBlockType}
           mode={mode}
           setDebugInfo={setDebugInfo}
@@ -144,10 +170,9 @@ function App() {
         setAxisLockEnabled={setAxisLockEnabled}
         placementSize={placementSize}
         setPlacementSize={setPlacementSize}
-        terrain={terrain}
-        setTerrainState={setTerrainState}
         setGridSize={setGridSize}
         undoRedoManager={undoRedoManagerRef.current}
+        currentBlockType={currentBlockType}
       />
 
       <UndoRedoManager
