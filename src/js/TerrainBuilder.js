@@ -561,10 +561,16 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			}
 		} else {
 			// Handle environment objects
-			previewPositionRef.current.copy(intersection.point);
+			const envPosition = intersection.point.clone();
+			
+			// For environment objects, we want to snap the Y position to the nearest integer
+			// and add 0.5 to place them on top of blocks rather than halfway through
+			envPosition.y = Math.ceil(envPosition.y);
+			
+			previewPositionRef.current.copy(envPosition);
 			lastPreviewPositionRef.current.copy(intersection.point);
-			setPreviewPosition(intersection.point);
-			previewPositionToAppJS(intersection.point);
+			setPreviewPosition(envPosition);
+			previewPositionToAppJS(envPosition);
 			updateDebugInfo();
 		}
 

@@ -8,6 +8,7 @@ import { environmentModels } from "../EnvironmentBuilder";
 import { getBlockTypes } from "../TerrainBuilder";
 import * as THREE from "three";
 import { version } from "../Constants";
+import { generatePerlinNoise } from "perlin-noise";
 
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, handleImport, handleAssetPackImport, setGridSize, undoRedoManager, currentBlockType }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
@@ -150,57 +151,58 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	};
 
 	const generateTerrain = () => {
-		console.log("Generating terrain");
-		const { width, length, height, scale, roughness, clearMap } = terrainSettings;
-
-		// Validate settings
-		if (width <= 0 || length <= 0 || height <= 0 || scale <= 0) {
-			alert("All dimensions and scale must be greater than 0");
-			return;
-		}
-
-		// Clear existing terrain if requested
-		if (clearMap) {
-			terrainBuilderRef.current?.clearMap();
-		}
-
-		// Generate noise map with proper scale and amplitude
-		const noiseMap = generateNoise(width, length, {
-			amplitude: height, // Keep amplitude at 1 for normalized values
-			scale: scale / 100, // Scale affects frequency of features
-			octaves: 4, // Number of noise layers
-			persistence: roughness / 100, // How much each octave contributes
-		});
-
-		// Get current terrain data or start with empty object if clearing
-		const terrainData = clearMap ? {} : terrainBuilderRef.current.getCurrentTerrainData();
-				
-		const startPos = {
-			x: -Math.floor(width / 2),
-			y: 0,
-			z: -Math.floor(length / 2)
+		const { width, length, height, roughness, clearMap } = terrainSettings;
+		
+		// Get current terrain data or start with empty object
+		let terrainData = clearMap ? {} : terrainBuilderRef.current.getCurrentTerrainData();
+		
+		// Calculate scale based on roughness (70-100)
+		// For extremely smooth terrain, we need a massive scale difference
+		// Higher scale values = smoother terrain with fewer variations
+		const scale = Math.pow((100 - roughness) / 20, 3) * 10; // Cubic scaling for extreme smoothness
+		
+		// Generate noise with adjusted parameters for smoother results
+		const noiseOptions = {
+			amplitude: 1,
+			octaves: roughness > 90 ? 1 : roughness > 80 ? 2 : 4, // Single octave for extremely smooth terrain
+			persistence: roughness > 90 ? 0.1 : roughness > 80 ? 0.3 : 0.6, // Very low persistence for smooth terrain
+			scale: scale
 		};
-
-		// Generate terrain blocks based on noise map
+		
+		// Generate 2D noise map
+		const noise = generatePerlinNoise(width, length, noiseOptions);
+		
+		// Calculate center offset for placement
+		const startX = -Math.floor(width / 2);
+		const startZ = -Math.floor(length / 2);
+		
+		// Generate terrain blocks based on noise
 		for (let x = 0; x < width; x++) {
 			for (let z = 0; z < length; z++) {
-				// Scale noise value (0 to 1) to desired height range
-				const terrainHeight = Math.floor(noiseMap[x][z] * height);
-
-				// Fill from bottom up to terrain height
-				for (let y = 0; y <= terrainHeight; y++) {
-					const position = {
-						x: startPos.x + x,
-						y: startPos.y + y,
-						z: startPos.z + z
-					};
-
-					// Add block to terrain data
-					const key = `${position.x},${position.y},${position.z}`;
+				// Get noise value (0-1) and scale to desired height
+				const noiseIndex = z * width + x;
+				const noiseValue = noise[noiseIndex];
+				
+				// Calculate block height (0 to max height)
+				const blockHeight = Math.floor(noiseValue * height);
+				
+				// Place blocks from ground up to calculated height
+				for (let y = 0; y <= blockHeight; y++) {
+					const worldX = startX + x;
+					const worldY = y;
+					const worldZ = startZ + z;
+					
+					const key = `${worldX},${worldY},${worldZ}`;
+					
+					// Use current block type for the top layer, could use different blocks for layers
 					terrainData[key] = { ...currentBlockType };
 				}
 			}
 		}
+		
+		console.log(`Generated terrain: ${width}x${length} with max height ${height}`);
+		console.log(`Terrain roughness: ${roughness}, scale: ${scale}`);
+		console.log(`Total blocks placed: ${Object.keys(terrainData).length}`);
 		
 		// Update terrain directly in TerrainBuilder
 		if (terrainBuilderRef.current) {
@@ -481,42 +483,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			console.error("Error exporting map:", error);
 			alert("Error exporting map. Please try again.");
 		}
-	};
-
-	// Replace the import with this simple implementation
-	const generateNoise = (width, length, options = {}) => {
-		const { amplitude = 1, scale = 0.1, octaves = 4, persistence = 0.5 } = options;
-		const result = Array(width).fill().map(() => Array(length).fill(0));
-		
-		// Simple random noise function
-		const noise = (x, y) => {
-		const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-		return n - Math.floor(n);
-		};
-		
-		// Generate basic noise
-		for (let x = 0; x < width; x++) {
-		for (let z = 0; z < length; z++) {
-			let value = 0;
-			let frequency = scale;
-			let amp = 1;
-			
-			// Add octaves
-			for (let o = 0; o < octaves; o++) {
-			const sampleX = x * frequency;
-			const sampleZ = z * frequency;
-			value += noise(sampleX, sampleZ) * amp;
-			
-			amp *= persistence;
-			frequency *= 2;
-			}
-			
-			// Normalize to 0-1 range and apply amplitude
-			result[x][z] = (value / octaves) * amplitude;
-		}
-		}
-		
-		return result;
 	};
   
 
@@ -979,7 +945,9 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 						<div className="modal-buttons">
 							<button
 								className="menu-button"
-								onClick={generateTerrain}>
+								onClick={() => {
+									generateTerrain();
+								}}>
 								Generate
 							</button>
 							<button
