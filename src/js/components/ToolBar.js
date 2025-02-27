@@ -6,10 +6,12 @@ import "../../css/ToolBar.css";
 import { generatePerlinNoise } from "perlin-noise";
 import { 
 	exportMapFile,
-	exportFullAssetPack
+	exportFullAssetPack, 
+	importMap,
+	importAssetPack
 } from '../ImportExport';
 
-const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, handleImport, handleAssetPackImport, setGridSize, undoRedoManager, currentBlockType }) => {
+const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, setGridSize, undoRedoManager, currentBlockType, environmentBuilderRef }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
 	const [showDimensionsModal, setShowDimensionsModal] = useState(false);
 	const [dimensions, setDimensions] = useState({
@@ -297,6 +299,21 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		return () => clearInterval(interval);
 	}, []);
 
+	// Add console logs to debug import handlers
+	const onMapFileSelected = (event) => {
+		console.log("Map file selected:", event.target.files[0]);
+		if (event.target.files && event.target.files[0]) {
+			importMap(event.target.files[0], terrainBuilderRef, environmentBuilderRef);
+		}
+	};
+
+	const onAssetPackSelected = (event) => {
+		console.log("Asset pack selected:", event.target.files[0]);
+		if (event.target.files && event.target.files[0]) {
+			importAssetPack(event.target.files[0], environmentBuilderRef);
+		}
+	};
+
 	return (
 		<>
 			<div className="controls-container">
@@ -312,7 +329,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 								id="mapFileInput"
 								type="file"
 								accept=".json"
-								onChange={handleImport}
+								onChange={onMapFileSelected}
 								style={{ display: "none" }}
 							/>
 						</Tooltip>
@@ -326,7 +343,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 								id="assetPackInput"
 								type="file"
 								accept=".zip"
-								onChange={handleAssetPackImport}
+								onChange={onAssetPackSelected}
 								style={{ display: "none" }}
 							/>
 						</Tooltip>

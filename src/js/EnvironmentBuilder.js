@@ -155,7 +155,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             }));
 
             // Load saved environment after models are loaded
-            await loadSavedEnvironment();
+            await refreshEnvironmentFromDB();
         } catch (error) {
             console.error('Error loading custom models from DB:', error);
         }
@@ -396,18 +396,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         }
     };
 
-    const loadSavedEnvironment = () => {
-        DatabaseManager.getData(STORES.ENVIRONMENT, 'current')
-            .then((savedEnvironment) => {
-                if (Array.isArray(savedEnvironment) && savedEnvironment.length > 0) {
-                    updateEnvironmentToMatch(savedEnvironment);
-                }
-            })
-            .catch(error => {
-                console.error('Error loading saved environment:', error);
-            });
-    };
-
     /// updates the environment to match the target state, ignoring any instances that are already in the environment
     /// only used when rebuilding the environment
     const updateEnvironmentToMatch = (targetState) => {
@@ -476,7 +464,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
     /// places an object in the environment, without saving state
     /// only used when rebuilding the environment, so that the state is not saved to the database untill after the environment has been rebuilt
-    const placeEnvironmentModelWithoutSaving = (blockType, mesh) => {
+    const placeEnvironmentModelWithoutSaving = (blockType, mesh, savedInstanceId = null) => {
         if (!blockType || !mesh) {
             console.warn(`blockType and mesh null`);
             return null;
@@ -496,6 +484,12 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             return null;
         }
 
+        // Check if meshes array exists and is not empty
+        if (!instancedData.meshes || instancedData.meshes.length === 0) {
+            console.warn(`No instanced meshes available for model ${modelData.name}`);
+            return null;
+        }
+
         // Update the world matrix to ensure all transforms are correct
         mesh.updateWorldMatrix(true, true);
 
@@ -506,16 +500,32 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         const matrix = new THREE.Matrix4();
         matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
 
-        const instanceId = instancedData.instances.size;
+        // Use provided instanceId if available, otherwise find next available ID
+        let instanceId;
+        if (savedInstanceId !== null) {
+            instanceId = savedInstanceId;
+        } else {
+            instanceId = instancedData.instances.size;
+            // Make sure we don't reuse an existing ID
+            while (instancedData.instances.has(instanceId)) {
+                instanceId++;
+            }
+        }
         
-        instancedData.meshes.forEach(mesh => {
+        // Filter out any undefined meshes before processing
+        const validMeshes = instancedData.meshes.filter(mesh => mesh !== undefined && mesh !== null);
+        
+        validMeshes.forEach(mesh => {
             const currentCapacity = mesh.instanceMatrix.count;
             if (instanceId >= currentCapacity - 1) {
                 expandInstancedMeshCapacity(modelUrl);
-                // Re-get the mesh as it might have been replaced
-                mesh = instancedData.meshes[instancedData.meshes.indexOf(mesh)];
+                // Re-get the valid meshes as they might have been replaced
+                const updatedValidMeshes = instancedData.meshes.filter(m => m !== undefined && m !== null);
+                validMeshes.length = 0;
+                updatedValidMeshes.forEach(m => validMeshes.push(m));
             }
-            mesh.count++;
+            
+            mesh.count = Math.max(mesh.count, instanceId + 1);
             mesh.setMatrixAt(instanceId, matrix);
             mesh.instanceMatrix.needsUpdate = true;
         });
@@ -740,7 +750,11 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
         // If no specific capacity provided, double the current capacity
         if (!newCapacity) {
-            newCapacity = Math.max(10, instancedData.instances.size * 2);
+            const currentCapacity = instancedData.meshes[0]?.instanceMatrix.count || 0;
+            // Find the highest instance ID currently in use
+            const highestInstanceId = Math.max(...Array.from(instancedData.instances.keys()), -1);
+            // Make sure new capacity is at least double what we need
+            newCapacity = Math.max(10, Math.max(currentCapacity * 2, highestInstanceId * 2 + 10));
         }
 
         const newMeshes = instancedData.meshes.map(oldMesh => {
@@ -755,15 +769,22 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             newMesh.frustumCulled = oldMesh.frustumCulled;
             newMesh.renderOrder = oldMesh.renderOrder;
 
-            // Copy existing instances
-            const oldCount = oldMesh.count;
-            for (let i = 0; i < oldCount; i++) {
-                const matrix = new THREE.Matrix4();
-                oldMesh.getMatrixAt(i, matrix);
-                newMesh.setMatrixAt(i, matrix);
-            }
+            // Set count initially to 0 and only copy valid instances
+            newMesh.count = 0;
             
-            newMesh.count = oldCount;
+            // Find the highest valid instance ID
+            let maxInstanceId = -1;
+            
+            // Copy only existing instances instead of all slots up to count
+            Array.from(instancedData.instances.keys()).forEach(instanceId => {
+                const matrix = new THREE.Matrix4();
+                oldMesh.getMatrixAt(instanceId, matrix);
+                newMesh.setMatrixAt(instanceId, matrix);
+                maxInstanceId = Math.max(maxInstanceId, instanceId);
+            });
+            
+            // Set count to highest instance ID + 1
+            newMesh.count = maxInstanceId + 1;
             newMesh.instanceMatrix.needsUpdate = true;
 
             // Ensure geometry is properly set up
@@ -785,7 +806,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         // Update the instancedData with new meshes
         instancedData.meshes = newMeshes;
         instancedMeshes.current.set(modelUrl, instancedData);
-
     };
 
     /// gets the placement positions, used when adding an object to the environment
@@ -1046,7 +1066,6 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         removeInstance,
         updatePreviewPosition,
         updateEnvironmentToMatch,
-        loadSavedEnvironment,
         loadModel,
         refreshEnvironmentFromDB,
         beginUndoRedoOperation,

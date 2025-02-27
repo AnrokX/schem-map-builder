@@ -20,9 +20,8 @@ export const exportMap = async () => {
     // Get custom blocks data
     const customBlocksData = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks");
     
-    // Create the export object
+    // Create the export object without version
     const exportData = {
-      version: 1,
       terrain: terrainData || {},
       environment: environmentData || [],
       customBlocks: customBlocksData || []
@@ -55,34 +54,92 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) 
         try {
           const importData = JSON.parse(event.target.result);
           
-          // Validate the imported data
-          if (!importData.version || !importData.terrain) {
-            throw new Error("Invalid map file format");
+          // Check if this is a terrain.json format (with blocks and entities)
+          const isTerrainJsonFormat = importData.blocks && importData.entities;
+          
+          // Check if this is the older format with terrain property
+          const isOldFormat = importData.terrain;
+          
+          // Validate the imported data - accept either format
+          if (!isTerrainJsonFormat && !isOldFormat) {
+            throw new Error("Invalid map file format - no valid map data found");
           }
           
           // Clear existing map if user confirms
           if (window.confirm("Do you want to clear the existing map before importing?")) {
-            // Use terrainBuilderRef to clear the map
-            if (terrainBuilderRef && terrainBuilderRef.current) {
-              await terrainBuilderRef.current.clearMap();
-            } else {
-              // Fallback if ref is not available
-              await DatabaseManager.clearStore(STORES.TERRAIN);
-              await DatabaseManager.clearStore(STORES.ENVIRONMENT);
-              await Promise.all([
-                DatabaseManager.saveData(STORES.UNDO, "states", []),
-                DatabaseManager.saveData(STORES.REDO, "states", [])
-              ]);
+            await DatabaseManager.clearStore(STORES.TERRAIN);
+            await DatabaseManager.clearStore(STORES.ENVIRONMENT);
+            await Promise.all([
+              DatabaseManager.saveData(STORES.UNDO, "states", []),
+              DatabaseManager.saveData(STORES.REDO, "states", [])
+            ]);
+          }
+          else {
+            // Clear the environment
+            await terrainBuilderRef.current.clearMap();
+          }
+          
+          let terrainData = {};
+          let environmentData = [];
+          
+          // Process based on format
+          if (isTerrainJsonFormat) {
+            // Convert blocks format to terrain format
+            Object.entries(importData.blocks).forEach(([key, value]) => {
+              terrainData[key] = { id: value };
+            });
+            
+            // Convert entities to environment format
+            if (importData.entities) {
+              environmentData = Object.entries(importData.entities)
+                .map(([key, entity], index) => {
+                  const [x, y, z] = key.split(',').map(Number);
+                  
+                  // Convert rotation from quaternion to euler angles
+                  const quaternion = new THREE.Quaternion(
+                    entity.rigidBodyOptions.rotation.x,
+                    entity.rigidBodyOptions.rotation.y,
+                    entity.rigidBodyOptions.rotation.z,
+                    entity.rigidBodyOptions.rotation.w
+                  );
+                  const euler = new THREE.Euler().setFromQuaternion(quaternion);
+
+                  // Get model name from the file path
+                  const modelName = entity.modelUri.split('/').pop().replace('.gltf', '');
+                  const matchingModel = environmentModels.find(model => model.name === modelName);
+                  console.log(matchingModel);
+
+                  // Calculate the vertical offset to subtract
+                  const boundingBoxHeight = matchingModel?.boundingBoxHeight || 1;
+                  const verticalOffset = (boundingBoxHeight * entity.modelScale) / 2;
+                  const adjustedY = y - 0.5 - verticalOffset;
+
+                  return {
+                    position: { x, y: adjustedY, z },
+                    rotation: { x: euler.x, y: euler.y, z: euler.z },
+                    scale: { x: entity.modelScale, y: entity.modelScale, z: entity.modelScale },
+                    modelUrl: matchingModel ? matchingModel.modelUrl : `assets/${entity.modelUri}`,
+                    name: modelName,
+                    modelLoopedAnimations: entity.modelLoopedAnimations || ["idle"],
+                    // Add instanceId to each object - this is critical!
+                    instanceId: index // Use the array index as a unique ID
+                  };
+                })
+                .filter(obj => obj !== null);
+              
+              console.log(`Imported ${environmentData.length} environment objects`);
             }
+          } else if (isOldFormat) {
+            // Use the old format directly
+            terrainData = importData.terrain;
+            environmentData = importData.environment || [];
           }
           
           // Save terrain data
-          await DatabaseManager.saveData(STORES.TERRAIN, "current", importData.terrain);
+          await DatabaseManager.saveData(STORES.TERRAIN, "current", terrainData);
           
-          // Save environment data if it exists
-          if (importData.environment) {
-            await DatabaseManager.saveData(STORES.ENVIRONMENT, "current", importData.environment);
-          }
+          // Save environment data
+          await DatabaseManager.saveData(STORES.ENVIRONMENT, "current", environmentData);
           
           // Import custom blocks if they exist
           if (importData.customBlocks && importData.customBlocks.length > 0) {
@@ -97,13 +154,14 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) 
           }
           
           if (environmentBuilderRef && environmentBuilderRef.current) {
+            // Wait for environment refresh to complete
             await environmentBuilderRef.current.refreshEnvironmentFromDB();
           }
           
           resolve({
-            terrain: importData.terrain,
-            environment: importData.environment,
-            customBlocks: importData.customBlocks
+            terrain: terrainData,
+            environment: environmentData,
+            customBlocks: importData.customBlocks || []
           });
         } catch (error) {
           reject(error);
@@ -134,9 +192,8 @@ export const exportAssetPack = async () => {
     // Get custom models data
     const customModelsData = await DatabaseManager.getData(STORES.CUSTOM_MODELS, "models");
     
-    // Create the export object
+    // Create the export object without version
     const exportData = {
-      version: 1,
       blocks: customBlocksData || [],
       models: customModelsData || []
     };
@@ -167,10 +224,7 @@ export const importAssetPack = async (file, environmentBuilderRef) => {
         try {
           const importData = JSON.parse(event.target.result);
           
-          // Validate the imported data
-          if (!importData.version) {
-            throw new Error("Invalid asset pack file format");
-          }
+          // No version validation needed
           
           let customBlocks = [];
           let customModels = [];
@@ -506,28 +560,6 @@ export const exportFullAssetPack = async (terrainBuilderRef) => {
   } catch (error) {
     console.error("Error exporting asset pack:", error);
     alert("Error exporting map. Please try again.");
-    throw error;
-  }
-};
-
-/**
- * Imports a map from a ZIP file containing a complete asset pack
- * @param {File} file The ZIP file to import
- * @param {Object} terrainBuilderRef Reference to the TerrainBuilder component
- * @param {Object} environmentBuilderRef Reference to the EnvironmentBuilder component
- * @returns {Promise<Object>} A promise that resolves to an object containing the imported data
- */
-export const importAssetPackZip = async (file, terrainBuilderRef, environmentBuilderRef) => {
-  try {
-    // Implementation for importing a ZIP file would go here
-    // This would involve extracting the ZIP, processing the terrain.json file,
-    // and handling any custom assets included in the ZIP
-    
-    // For now, just show an alert that this feature is not yet implemented
-    alert("Importing asset packs from ZIP files is not yet implemented.");
-    return {};
-  } catch (error) {
-    console.error("Error importing asset pack ZIP:", error);
     throw error;
   }
 };

@@ -791,33 +791,31 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	}
 
 	const clearMap = () => {
-		if (window.confirm("Are you sure you want to clear the entire map?")) {
-			// Clear environment data first
-			DatabaseManager.clearStore(STORES.ENVIRONMENT)
-				.then(() => {
-					// Clear environment objects
-					environmentBuilderRef.current.clearEnvironments();
-					
-					// Clear terrain data
-					return DatabaseManager.clearStore(STORES.TERRAIN);
-				})
-				.then(() => {
-					// Clear undo/redo history
-					return Promise.all([
-						DatabaseManager.saveData(STORES.UNDO, "states", []),
-						DatabaseManager.saveData(STORES.REDO, "states", [])
-					]);
-				})
-				.then(() => {
-					// Update local terrain state
-					terrainRef.current = {};
-					buildUpdateTerrain();
-					totalBlocksRef.current = 0;
-				})
-				.catch(error => {
-					console.error("Error clearing map data:", error);
-				});
-		}
+		// Clear environment data first
+		DatabaseManager.clearStore(STORES.ENVIRONMENT)
+			.then(() => {
+				// Clear environment objects
+				environmentBuilderRef.current.clearEnvironments();
+				
+				// Clear terrain data
+				return DatabaseManager.clearStore(STORES.TERRAIN);
+			})
+			.then(() => {
+				// Clear undo/redo history
+				return Promise.all([
+					DatabaseManager.saveData(STORES.UNDO, "states", []),
+					DatabaseManager.saveData(STORES.REDO, "states", [])
+				]);
+			})
+			.then(() => {
+				// Update local terrain state
+				terrainRef.current = {};
+				buildUpdateTerrain();
+				totalBlocksRef.current = 0;
+			})
+			.catch(error => {
+				console.error("Error clearing map data:", error);
+			});
 	}
 
 	/// Mouse move update preview position and handle block placement if mouse is down
@@ -996,6 +994,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		async refreshTerrainFromDB() {
 			try {
 				const saved = await DatabaseManager.getData(STORES.TERRAIN, "current");
+				console.log("Refreshing terrain from DB, found blocks:", saved ? Object.keys(saved).length : 0);
 				if (saved) {
 					terrainRef.current = saved;
 				} else {
