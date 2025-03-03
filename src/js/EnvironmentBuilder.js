@@ -118,6 +118,16 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         try {
             const customModels = await DatabaseManager.getData(STORES.CUSTOM_MODELS, 'models');
             if (customModels) {
+                // Clear any existing custom models to prevent duplicates
+                const customModelIndices = environmentModels
+                    .filter(model => model.isCustom)
+                    .map(model => environmentModels.indexOf(model));
+                
+                // Remove from highest index to lowest to avoid shifting issues
+                customModelIndices.sort((a, b) => b - a).forEach(index => {
+                    environmentModels.splice(index, 1);
+                });
+                
                 for (const model of customModels) {
                     const blob = new Blob([model.data], { type: 'model/gltf+json' });
                     const fileUrl = URL.createObjectURL(blob);
@@ -421,12 +431,22 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
             // Build target state map
             targetState.forEach(obj => {
-                targetObjects.set(obj.instanceId, {
-                    ...obj,
-                    position: new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z),
-                    rotation: new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z),
-                    scale: new THREE.Vector3(obj.scale.x, obj.scale.y, obj.scale.z)
-                });
+                // Find the corresponding model in environmentModels
+                const modelType = environmentModels.find(model => 
+                    model.name === obj.name || model.modelUrl === obj.modelUrl
+                );
+                
+                if (modelType) {
+                    targetObjects.set(obj.instanceId, {
+                        ...obj,
+                        modelUrl: modelType.modelUrl, // Use the current modelUrl from environmentModels
+                        position: new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z),
+                        rotation: new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z),
+                        scale: new THREE.Vector3(obj.scale.x, obj.scale.y, obj.scale.z)
+                    });
+                } else {
+                    console.warn(`Could not find model for ${obj.name || obj.modelUrl}`);
+                }
             });
 
             // Remove objects not in target state
@@ -440,7 +460,10 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             for (const [instanceId, obj] of targetObjects) {
                 if (!currentObjects.has(instanceId)) {
                     // Add new object
-                    const modelType = environmentModels.find(model => model.modelUrl === obj.modelUrl);
+                    const modelType = environmentModels.find(model => 
+                        model.modelUrl === obj.modelUrl || model.name === obj.name
+                    );
+                    
                     if (modelType) {
                         const tempMesh = new THREE.Object3D();
                         tempMesh.position.copy(obj.position);
@@ -926,11 +949,12 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
 
     const refreshEnvironmentFromDB = async () => {
         try {
-            // If you want to double-check the flag:
             const savedEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, "current");
-            if (Array.isArray(savedEnv)) {
+            if (Array.isArray(savedEnv) && savedEnv.length > 0) {
+                console.log(`Loading ${savedEnv.length} environment objects from database`);
                 updateEnvironmentToMatch(savedEnv); 
             } else {
+                console.log("No environment objects found in database");
                 clearEnvironments();
             }
         } catch (error) {

@@ -10,7 +10,7 @@ import {
 	importMap,
 	importAssetPack
 } from '../ImportExport';
-
+import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, setGridSize, undoRedoManager, currentBlockType, environmentBuilderRef }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
 	const [showDimensionsModal, setShowDimensionsModal] = useState(false);
@@ -333,33 +333,37 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 								style={{ display: "none" }}
 							/>
 						</Tooltip>
-						<Tooltip text="Import complete asset pack (includes map and textures)">
-							<button
-								onClick={() => document.getElementById("assetPackInput").click()}
-								className="control-button import-export-button">
-								Asset Pack
-							</button>
-							<input
-								id="assetPackInput"
-								type="file"
-								accept=".zip"
-								onChange={onAssetPackSelected}
-								style={{ display: "none" }}
-							/>
-						</Tooltip>
+						{!DISABLE_ASSET_PACK_IMPORT_EXPORT && (
+							<Tooltip text="Import complete asset pack (includes map and textures)">
+								<button
+									onClick={() => document.getElementById("assetPackInput").click()}
+									className="control-button import-export-button">
+									Asset Pack
+								</button>
+								<input
+									id="assetPackInput"
+									type="file"
+									accept=".zip"
+									onChange={onAssetPackSelected}
+									style={{ display: "none" }}
+								/>
+							</Tooltip>
+						)}
 					</div>
 					<div className="control-label">Import</div>
 				</div>
 
 				<div className="control-group">
 					<div className="control-button-wrapper">
-						<Tooltip text="Export map and assets as a complete package">
-							<button
-								onClick={() => handleExport()}
-								className="control-button import-export-button">
-								Asset Pack
-							</button>
-						</Tooltip>
+						{!DISABLE_ASSET_PACK_IMPORT_EXPORT && (
+							<Tooltip text="Export map and assets as a complete package">
+								<button
+									onClick={() => handleExport()}
+									className="control-button import-export-button">
+									Asset Pack
+								</button>
+							</Tooltip>
+						)}
 						<Tooltip text="Export just the map file">
 							<button
 								onClick={() => handleExportMap()}

@@ -43,9 +43,10 @@ export const exportMap = async () => {
  * @param {File} file The JSON file to import
  * @param {Object} terrainBuilderRef Reference to the TerrainBuilder component
  * @param {Object} environmentBuilderRef Reference to the EnvironmentBuilder component
+ * @param {Function} setCustomBlocks Optional callback to update custom blocks state in a parent component
  * @returns {Promise<Object>} A promise that resolves to an object containing the imported data
  */
-export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) => {
+export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, setCustomBlocks) => {
   try {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -63,20 +64,6 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) 
           // Validate the imported data - accept either format
           if (!isTerrainJsonFormat && !isOldFormat) {
             throw new Error("Invalid map file format - no valid map data found");
-          }
-          
-          // Clear existing map if user confirms
-          if (window.confirm("Do you want to clear the existing map before importing?")) {
-            await DatabaseManager.clearStore(STORES.TERRAIN);
-            await DatabaseManager.clearStore(STORES.ENVIRONMENT);
-            await Promise.all([
-              DatabaseManager.saveData(STORES.UNDO, "states", []),
-              DatabaseManager.saveData(STORES.REDO, "states", [])
-            ]);
-          }
-          else {
-            // Clear the environment
-            await terrainBuilderRef.current.clearMap();
           }
           
           let terrainData = {};
@@ -142,10 +129,64 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) 
           await DatabaseManager.saveData(STORES.ENVIRONMENT, "current", environmentData);
           
           // Import custom blocks if they exist
+          let processedCustomBlocks = [];
           if (importData.customBlocks && importData.customBlocks.length > 0) {
-            await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, "blocks", importData.customBlocks);
+            // Process custom blocks to add placeholder textures if needed
+            processedCustomBlocks = importData.customBlocks.map(block => {
+              // Check if the block has a valid texture URI
+              if (!block.textureUri) {
+                // No texture URI at all
+                return {
+                  ...block,
+                  textureUri: './assets/blocks/error.png',
+                  needsTexture: true
+                };
+              } 
+              
+              // Handle different texture URI formats
+              if (block.textureUri.startsWith('data:image')) {
+                // Data URL - already valid
+                return block;
+              } else if (block.textureUri.includes('blocks/') || block.textureUri.includes('assets/blocks/')) {
+                // Relative path to a texture file
+                // Mark it as needing texture but provide the correct path format
+                const textureName = block.textureUri.split('/').pop().replace('.png', '');
+                
+                // Update the block name if it's not already set
+                const blockName = block.name || textureName;
+                
+                return {
+                  ...block,
+                  name: blockName,
+                  textureUri: './assets/blocks/error.png',
+                  originalTexturePath: block.textureUri, // Store the original path for reference
+                  needsTexture: true
+                };
+              } else {
+                // Unknown format, use error texture
+                return {
+                  ...block,
+                  textureUri: './assets/blocks/error.png',
+                  needsTexture: true
+                };
+              }
+            });
+            
+            // Save to database
+            await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, "blocks", processedCustomBlocks);
+            
             // Update block types with the imported custom blocks
-            updateBlockTypes(importData.customBlocks);
+            updateBlockTypes(processedCustomBlocks);
+            
+            // If a callback was provided, update the state in the parent component
+            if (typeof setCustomBlocks === 'function') {
+              setCustomBlocks(processedCustomBlocks);
+            }
+            
+            // Force BlockToolsSidebar to refresh
+            window.dispatchEvent(new CustomEvent('custom-blocks-updated', {
+              detail: { blocks: processedCustomBlocks }
+            }));
           }
           
           // Refresh terrain and environment builders
@@ -161,7 +202,7 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) 
           resolve({
             terrain: terrainData,
             environment: environmentData,
-            customBlocks: importData.customBlocks || []
+            customBlocks: processedCustomBlocks
           });
         } catch (error) {
           reject(error);
@@ -213,9 +254,10 @@ export const exportAssetPack = async () => {
  * Imports an asset pack from a JSON file
  * @param {File} file The JSON file to import
  * @param {Object} environmentBuilderRef Reference to the EnvironmentBuilder component
+ * @param {Function} setCustomBlocks Optional callback to update custom blocks state in a parent component
  * @returns {Promise<Object>} A promise that resolves to an object containing the imported data
  */
-export const importAssetPack = async (file, environmentBuilderRef) => {
+export const importAssetPack = async (file, environmentBuilderRef, setCustomBlocks) => {
   try {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -234,15 +276,41 @@ export const importAssetPack = async (file, environmentBuilderRef) => {
             // Get existing custom blocks
             const existingBlocks = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks") || [];
             
+            // Process custom blocks to handle missing textures
+            const processedBlocks = importData.blocks.map(block => {
+              // Check if the block has a valid texture URI (data URL)
+              if (!block.textureUri || !block.textureUri.startsWith('data:image')) {
+                // Use placeholder texture for blocks without valid texture data
+                return {
+                  ...block,
+                  textureUri: './assets/blocks/error.png',
+                  needsTexture: true // Flag to indicate this block needs a texture upload
+                };
+              }
+              return block;
+            });
+            
             // Merge existing and new blocks, avoiding duplicates by ID
             const existingIds = new Set(existingBlocks.map(block => block.id));
-            const newBlocks = importData.blocks.filter(block => !existingIds.has(block.id));
+            const newBlocks = processedBlocks.filter(block => !existingIds.has(block.id));
             
             customBlocks = [...existingBlocks, ...newBlocks];
             await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, "blocks", customBlocks);
             
             // Update block types with the imported custom blocks
-            updateBlockTypes(newBlocks);
+            updateBlockTypes(customBlocks);
+            
+            // If a callback was provided, update the state in the parent component
+            if (typeof setCustomBlocks === 'function') {
+              setCustomBlocks(customBlocks);
+            }
+            
+            // Force BlockToolsSidebar to refresh (if no callback was provided)
+            if (!setCustomBlocks) {
+              window.dispatchEvent(new CustomEvent('custom-blocks-updated', {
+                detail: { blocks: customBlocks }
+              }));
+            }
           }
           
           // Import custom models if they exist

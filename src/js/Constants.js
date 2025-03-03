@@ -1,6 +1,7 @@
 // version and under construction constants
 export const version = "1.4.0";
 export const IS_UNDER_CONSTRUCTION = true;
+export const DISABLE_ASSET_PACK_IMPORT_EXPORT = true;
 
 // undo redo constants
 export const MIN_UNDO_STATES = 30;

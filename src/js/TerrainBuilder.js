@@ -51,6 +51,7 @@ let blockTypesArray = (() => {
 		...block,
 		isMultiTexture: block.sides.length > 0,
 		isEnvironment: false,
+		hasMissingTexture: block.textureUri === "./assets/blocks/error.png",
 	}));
 })();
 
@@ -63,7 +64,7 @@ export const updateBlockTypes = (customBlocks) => {
 			isMultiTexture: false,
 			isEnvironment: false,
 			// Mark blocks that use error texture as having missing textures
-			hasMissingTexture: block.textureUri === "./assets/blocks/error/error.png",
+			hasMissingTexture: block.textureUri === "./assets/blocks/error.png",
 		})),
 	];
 	return blockTypesArray;
@@ -233,7 +234,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	};
 
 	const createBlockMaterial = (blockType) => {
-		if (blockType.isCustom) {
+		if (blockType.isCustom || blockType.id >= 100) {
 			const texture = new THREE.TextureLoader().load(blockType.textureUri);
 			texture.magFilter = THREE.NearestFilter;
 			texture.minFilter = THREE.NearestFilter;
@@ -250,7 +251,8 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 			// Handle texture loading errors by replacing with error texture
 			texture.onerror = () => {
-				const errorTexture = new THREE.TextureLoader().load("./assets/blocks/error/error.png");
+				console.warn(`Error loading texture for custom block ${blockType.name}, using error texture`);
+				const errorTexture = new THREE.TextureLoader().load("./assets/blocks/error.png");
 				errorTexture.magFilter = THREE.NearestFilter;
 				errorTexture.minFilter = THREE.NearestFilter;
 				errorTexture.colorSpace = THREE.SRGBColorSpace;
@@ -311,7 +313,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			} catch (error) {
 				console.error(`Error loading texture for ${blockType.name}:`, error);
 				// Load error texture instead
-				const errorTexture = new THREE.TextureLoader().load("./assets/blocks/error/error.png");
+				const errorTexture = new THREE.TextureLoader().load("./assets/blocks/error.png");
 				errorTexture.magFilter = THREE.NearestFilter;
 				errorTexture.minFilter = THREE.NearestFilter;
 				errorTexture.colorSpace = THREE.SRGBColorSpace;
@@ -895,11 +897,44 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 				return;
 			}
 
-			meshesInitializedRef.current = true;
-			console.log("Meshes INITIALIZED LETS GOoooo! Status: ", meshesInitializedRef.current);
+			// Load custom blocks from IndexedDB
+			DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks")
+				.then((customBlocksData) => {
+					if (customBlocksData && customBlocksData.length > 0) {
+						console.log("Loading custom blocks from IndexedDB:", customBlocksData.length);
+						// Update block types with custom blocks
+						updateBlockTypes(customBlocksData);
+						
+						// Initialize meshes for custom blocks
+						for (const blockType of customBlocksData) {
+							if (!instancedMeshRef.current[blockType.id]) {
+								const geometry = new THREE.BoxGeometry(1, 1, 1);
+								const materials = createBlockMaterial(blockType);
 
-			// Load terrain from IndexedDB
-			DatabaseManager.getData(STORES.TERRAIN, "current")
+								instancedMeshRef.current[blockType.id] = new THREE.InstancedMesh(
+									geometry,
+									materials[0], // Use first material for all faces
+									1
+								);
+
+								instancedMeshRef.current[blockType.id].userData.blockTypeId = blockType.id;
+								instancedMeshRef.current[blockType.id].count = 0;
+								scene.add(instancedMeshRef.current[blockType.id]);
+							}
+						}
+						
+						// Notify the app that custom blocks were loaded
+						window.dispatchEvent(new CustomEvent('custom-blocks-loaded', {
+							detail: { blocks: customBlocksData }
+						}));
+					}
+					
+					meshesInitializedRef.current = true;
+					console.log("Meshes INITIALIZED LETS GOoooo! Status: ", meshesInitializedRef.current);
+
+					// Load terrain from IndexedDB
+					return DatabaseManager.getData(STORES.TERRAIN, "current");
+				})
 				.then((savedTerrain) => {
 					if (!mounted) return;
 
@@ -920,8 +955,9 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					setPageIsLoaded(true);
 				})
 				.catch((error) => {
-					console.error("Error loading terrain:", error);
+					console.error("Error loading terrain or custom blocks:", error);
 					if (mounted) {
+						meshesInitializedRef.current = true;
 						terrainRef.current = {};
 						buildUpdateTerrain();
 						totalBlocksRef.current = 0;

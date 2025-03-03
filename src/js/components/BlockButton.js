@@ -12,7 +12,9 @@ const BlockButton = ({
 }) => {
   
   const getTextureUrl = (blockType) => {
-    if (!blockType.textureUri || blockType.textureUri.includes('error.png')) return '';
+    if (!blockType.textureUri || blockType.textureUri.includes('error.png')) {
+      return './assets/blocks/error.png';
+    }
     
     if (blockType.isCustom) {
       // Handle both base64 and filename cases
@@ -25,6 +27,7 @@ const BlockButton = ({
 
   const isMissingTexture = !blockType.textureUri || 
     blockType.textureUri.includes('error.png') || 
+    blockType.hasMissingTexture ||
     (blockType.isMultiTexture && !blockType.sideTextures['+y']);
 
   return (
@@ -33,7 +36,7 @@ const BlockButton = ({
         className={`block-button ${isSelected ? "selected" : ""}`}
         onClick={() => {
           if (isMissingTexture) {
-            alert("Missing Texture! \n \nThis means the map has this block, but the texture hasnt been added yet. Please select a different block, or upload the correct texture of the same name.\n \nTexture Name: \"" + blockType.name + "\"");
+            alert("Missing Texture! \n \nThis means the map has this block, but the texture hasn't been added yet. Please select a different block, or upload the correct texture of the same name.\n \nTexture Name: \"" + blockType.name + "\"");
             return;
           }
           onSelect(blockType);
@@ -57,9 +60,9 @@ const BlockButton = ({
         <div
           className="block-preview"
           style={{
-            backgroundImage: blockType.isMultiTexture 
-              ? `url(${getTextureUrl({...blockType, textureUri: blockType.sideTextures['+y'] || blockType.textureUri})})`  // Use top texture if available
-              : `url(${getTextureUrl(blockType)})`,
+            backgroundImage: `url(${getTextureUrl(blockType.isMultiTexture 
+              ? {...blockType, textureUri: blockType.sideTextures['+y'] || blockType.textureUri}
+              : blockType)})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
             imageRendering: "pixelated",
