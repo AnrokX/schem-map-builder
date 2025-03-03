@@ -6,9 +6,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import { playPlaceSound } from "./Sound";
 import { cameraManager } from "./Camera";
 import { DatabaseManager, STORES } from "./DatabaseManager";
-import { AXIS_LOCK_THRESHOLD, THRESHOLD_FOR_PLACING } from "./Constants";
-
-let terrainRef = {};
+import { THRESHOLD_FOR_PLACING} from "./Constants";
 
 // Modify the blockTypes definition to be a function that can be updated
 let blockTypesArray = (() => {
@@ -343,6 +341,11 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			// Clear recently placed blocks on mouse down
 			recentlyPlacedBlocksRef.current.clear();
 
+			// Store initial position for axis lock
+			if (axisLockEnabledRef.current) {
+				placementStartPosition.current = previewPositionRef.current.clone();
+			}
+
 			// Save the initial state for undo/redo
 			placementStartState.current = {
 				terrain: { ...terrainRef.current },
@@ -392,6 +395,11 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 				}
 			}
 		});
+
+		// Set isFirstBlockRef to false after first block placement
+		if (isFirstBlockRef.current) {
+			isFirstBlockRef.current = false;
+		}
 
 		if (terrainChanged) {
 			buildUpdateTerrain();
@@ -453,37 +461,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		return null;
 	};
 
-	const calculateGridPosition = (intersection, mode, faceNormal) => {
-		if (!intersection) return null;
-
-		let position;
-		// For add mode, offset slightly from the face
-		position = intersection.point.clone().add(faceNormal.multiplyScalar(0.01));
-
-		if (mode === "remove") {
-			position.x = Math.round(position.x - faceNormal.x * 5);
-			position.y = Math.round(position.y - faceNormal.y * 5);
-			position.z = Math.round(position.z - faceNormal.z * 5);
-		} else if (!currentBlockTypeRef?.current?.isEnvironment) {
-			position.x = Math.round(position.x);
-			position.y = Math.round(position.y);
-			position.z = Math.round(position.z);
-		} else {
-			position.y = Math.round(position.y);
-		}
-
-		return position;
-	};
-
-	const applyAxisLock = (position, startPosition, lockedAxis) => {
-		if (!startPosition || !lockedAxis) return position;
-
-		const diff = new THREE.Vector3().subVectors(position, startPosition);
-		const constrained = startPosition.clone();
-		constrained[lockedAxis] += diff[lockedAxis];
-		return constrained;
-	};
-
 	// Function to update preview position based on mouse position
 	const updatePreviewPosition = () => {
 		// Cache the canvas rect calculation outside the update loop
@@ -510,8 +487,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		const intersection = getRaycastIntersection(raycaster);
 
 		if (!intersection) {
-			// Don't update if we don't have an intersection
-			// This prevents the preview from disappearing during jitter
 			return;
 		}
 
@@ -532,23 +507,37 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 				tempVectorRef.current.z = Math.round(tempVectorRef.current.z);
 			}
 
-			// Apply axis lock if needed
-			if (axisLockEnabledRef.current && lockedAxisRef.current && placementStartPosition.current) {
-				const constrained = placementStartPosition.current.clone();
-				constrained[lockedAxisRef.current] = tempVectorRef.current[lockedAxisRef.current];
-				tempVectorRef.current.copy(constrained);
-			}
-
 			// Maintain Y position during placement
 			if (isPlacingRef.current) {
 				tempVectorRef.current.y = currentPlacingYRef.current;
+			}
+
+			// Apply axis lock if needed
+			if (axisLockEnabledRef.current && isPlacingRef.current) {
+				if (!lockedAxisRef.current && !isFirstBlockRef.current) {
+					// Determine which axis to lock based on movement
+					const newAxis = determineLockedAxis(tempVectorRef.current);
+					if (newAxis) {
+						lockedAxisRef.current = newAxis;
+						console.log("Axis locked to:", newAxis); // Debug log
+					}
+				}
+
+				if (lockedAxisRef.current) {
+					// Lock movement to the determined axis
+					if (lockedAxisRef.current === 'x') {
+						tempVectorRef.current.z = placementStartPosition.current.z;
+					} else {
+						tempVectorRef.current.x = placementStartPosition.current.x;
+					}
+				}
 			}
 
 			// Check if we've moved enough to update the preview position
 			// This adds hysteresis to prevent small jitters
 			if (!isFirstBlockRef.current && isPlacingRef.current) {
 				tempVec2Ref.current.set(lastPreviewPositionRef.current.x, lastPreviewPositionRef.current.z);
-				tempVec2_2Ref.current.set(intersection.point.x, intersection.point.z);
+				tempVec2_2Ref.current.set(tempVectorRef.current.x, tempVectorRef.current.z);
 				if (tempVec2Ref.current.distanceTo(tempVec2_2Ref.current) < THRESHOLD_FOR_PLACING) {
 					return;
 				}
@@ -557,7 +546,8 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			// Only update if the position has actually changed
 			if (!previewPositionRef.current.equals(tempVectorRef.current)) {
 				previewPositionRef.current.copy(tempVectorRef.current);
-				lastPreviewPositionRef.current.copy(intersection.point);
+				// Store the constrained position, not the raw intersection point
+				lastPreviewPositionRef.current.copy(tempVectorRef.current);
 				setPreviewPosition(previewPositionRef.current.clone());
 				updateDebugInfo();
 			}
@@ -570,7 +560,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			envPosition.y = Math.ceil(envPosition.y);
 			
 			previewPositionRef.current.copy(envPosition);
-			lastPreviewPositionRef.current.copy(intersection.point);
+			lastPreviewPositionRef.current.copy(envPosition);
 			setPreviewPosition(envPosition);
 			previewPositionToAppJS(envPosition);
 			updateDebugInfo();
@@ -758,6 +748,26 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		return terrainRef.current;
 	};
 
+	const determineLockedAxis = (currentPos) => {
+		if (!placementStartPosition.current || !axisLockEnabledRef.current) return null;
+
+		const xDiff = Math.abs(currentPos.x - placementStartPosition.current.x);
+		const zDiff = Math.abs(currentPos.z - placementStartPosition.current.z);
+
+		// Only lock axis if we've moved enough to determine direction
+		// and one axis has significantly more movement than the other
+		if (Math.max(xDiff, zDiff) > THRESHOLD_FOR_PLACING) {
+			// Require one axis to have at least 50% more movement than the other
+			if (xDiff > zDiff * 1.5) {
+				return 'x';
+			} else if (zDiff > xDiff * 1.5) {
+				return 'z';
+			}
+		}
+		return null;
+	};
+
+
 	const updateTerrainFromToolBar = (terrainData) => {
 		terrainRef.current = terrainData;
 		buildUpdateTerrain();
@@ -787,7 +797,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	const updateDebugInfo = () => {
 		setDebugInfo({
 			preview: previewPositionRef.current,
-			lockedAxis: axisLockEnabled ? lockedAxisRef.current : "None",
 			totalBlocks: totalBlocksRef.current,
 		});
 	}
@@ -844,6 +853,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	useEffect(() => {
 		axisLockEnabledRef.current = axisLockEnabled;
+		console.log("Axis lock status:", axisLockEnabled);
 	}, [axisLockEnabled]);
 
 	// effect to update grid size
@@ -1051,6 +1061,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		window.addEventListener('resize', handleResize);
 		return () => window.removeEventListener('resize', handleResize);
 	}, []);
+
 
 	//// HTML Return Render
 	return (
