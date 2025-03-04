@@ -2,11 +2,14 @@ import React, { useRef, useEffect, useState, forwardRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import { playPlaceSound } from "./Sound";
 import { cameraManager } from "./Camera";
 import { DatabaseManager, STORES } from "./DatabaseManager";
-import { THRESHOLD_FOR_PLACING} from "./Constants";
+import { THRESHOLD_FOR_PLACING, BLOCK_INSTANCED_MESH_CAPACITY } from "./Constants";
+import { refreshBlockTools } from "./components/BlockToolsSidebar";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
+
+let meshesNeedsRefresh = false;
 
 // Modify the blockTypes definition to be a function that can be updated
 let blockTypesArray = (() => {
@@ -32,14 +35,12 @@ let blockTypesArray = (() => {
 					id: idCounter++,
 					name: blockName,
 					textureUri: `./assets/blocks/${blockName}.png`,
-					sides: [],
 					sideTextures: {},
 				});
 			}
 
 			if (side) {
 				const sideKey = side.slice(1);
-				blockMap.get(blockName).sides.push(sideKey);
 				blockMap.get(blockName).sideTextures[sideKey] = `./assets/blocks/${blockName}${side}.png`;
 			}
 		}
@@ -47,28 +48,158 @@ let blockTypesArray = (() => {
 
 	return Array.from(blockMap.values()).map((block) => ({
 		...block,
-		isMultiTexture: block.sides.length > 0,
+		isMultiTexture: Object.keys(block.sideTextures).length > 0,
 		isEnvironment: false,
 		hasMissingTexture: block.textureUri === "./assets/blocks/error.png",
 	}));
 })();
 
 // Add function to update blockTypes with custom blocks
-export const updateBlockTypes = (customBlocks) => {
-	blockTypesArray = [
-		...blockTypesArray,
-		...customBlocks.map((block) => ({
-			...block,
-			isMultiTexture: false,
-			isEnvironment: false,
-			// Mark blocks that use error texture as having missing textures
-			hasMissingTexture: block.textureUri === "./assets/blocks/error.png",
-		})),
-	];
-	return blockTypesArray;
+export const addCustomBlocks = (customBlocks) => {
+	if (!customBlocks.length) {
+		console.warn('No valid custom blocks provided');
+		return;
+	}
+
+	const currentCustomBlocks = getCustomBlocks();
+	let newCustomBlocks = [...currentCustomBlocks];
+	let nextCustomId = currentCustomBlocks.length + 100;
+
+	const checkTextureExists = (textureUri) => {
+		return new Promise((resolve) => {
+			const img = new Image();
+			img.onload = () => resolve(true);
+			img.onerror = () => resolve(false);
+			img.src = textureUri;
+		});
+	};
+
+	// Convert to async function to handle texture checks
+	const processBlocks = async () => {
+		for (const inputBlock of customBlocks) {
+			// Skip blocks with IDs < 100
+			if (inputBlock.id && inputBlock.id < 100) {
+				console.warn(`Skipping block with ID ${inputBlock.id} - cannot add blocks with IDs < 100`);
+				continue;
+			}
+
+			// Check if block with same name exists
+			const existingBlockIndex = newCustomBlocks.findIndex(b => b.name === inputBlock.name);
+			const existingDefaultBlock = blockTypesArray.find(b => b.name === inputBlock.name && b.id < 100);
+
+			// Skip if matching name exists in default blocks
+			if (existingDefaultBlock) {
+				console.warn(`Skipping block "${inputBlock.name}" - a default block with this name already exists`);
+				continue;
+			}
+
+			// Check if texture exists
+			const textureExists = await checkTextureExists(inputBlock.textureUri);
+			const finalTextureUri = textureExists ? inputBlock.textureUri : './assets/blocks/error.png';
+
+			if (!textureExists) {
+				console.warn(`Texture not found for block "${inputBlock.name}", using error texture`);
+			}
+
+			if (existingBlockIndex !== -1) {
+				// Update existing custom block
+				newCustomBlocks[existingBlockIndex] = {
+					...newCustomBlocks[existingBlockIndex],
+					textureUri: finalTextureUri,
+					hasMissingTexture: !textureExists
+				};
+			} else {
+				// Add new block
+				newCustomBlocks.push({
+					id: nextCustomId++,
+					name: inputBlock.name,
+					textureUri: finalTextureUri,
+					isCustom: true,
+					isEnvironment: false,
+					isMultiTexture: false,
+					hasMissingTexture: !textureExists,
+					sideTextures: {}
+				});
+			}
+		}
+
+		// Update blockTypesArray with new custom blocks
+		blockTypesArray = [
+			...blockTypesArray.filter(b => b.id < 100), // Keep default blocks
+			...newCustomBlocks // Add/update custom blocks
+		];
+
+		// Save to database
+		await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', newCustomBlocks)
+			.catch(error => console.error("Error saving custom blocks:", error));
+
+		refreshBlockTools();
+		meshesNeedsRefresh = true;
+	};
+
+	// Execute the async function
+	processBlocks().catch(error => console.error("Error processing custom blocks:", error));
 };
+
+export const updateCustomBlock = (block) => {
+	// Find existing block with matching name
+	const existingBlock = blockTypesArray.find(b => b.name === block.name);
+
+	if (existingBlock) {
+		// Update existing block's properties
+		existingBlock.textureUri = block.textureUri;
+		existingBlock.hasMissingTexture = false;
+		existingBlock.isCustom = true;
+		existingBlock.isEnvironment = false;
+		existingBlock.isMultiTexture = false;
+
+		// Get only the custom blocks (ID >= 100)
+		const customBlocks = getCustomBlocks();
+
+		// Save only custom blocks to database
+		DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlocks)
+			.catch(error => console.error("Error saving custom blocks:", error));
+
+		refreshBlockTools();
+		meshesNeedsRefresh = true;
+	} else {
+		console.warn(`Block with name ${block.name} not found in blockTypesArray`);
+	}
+};
+
+// Add function to remove custom blocks
+export const removeCustomBlocks = (blockIdsToRemove) => {
+	// Convert input to array if it's not already
+	const idsToRemove = Array.isArray(blockIdsToRemove) ? blockIdsToRemove : [blockIdsToRemove];
+	
+	// Validate that all IDs are in the custom block range (100-199)
+	const invalidIds = idsToRemove.filter(id => id < 100 || id >= 200);
+	if (invalidIds.length > 0) {
+		console.error('Cannot remove non-custom blocks with IDs:', invalidIds);
+		return;
+	}
+
+	// Remove the specified blocks
+	blockTypesArray = blockTypesArray.filter(block => !idsToRemove.includes(block.id));
+
+	// Save the updated blockTypesArray to the database
+	DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', blockTypesArray)
+		.catch(error => console.error("Error saving updated blocks:", error));
+
+	console.log("Removed custom blocks with IDs:", idsToRemove);
+	refreshBlockTools();
+	meshesNeedsRefresh = true;
+};
+
 // Export the blockTypes getter
 export const getBlockTypes = () => blockTypesArray;
+
+export const getCustomBlocks = () => {
+	const customBlocks = blockTypesArray.filter(block => block.id >= 100);
+	console.log("custom blocks:", customBlocks);
+	return customBlocks;
+};
+
 // Export the initial blockTypes for backward compatibility
 export const blockTypes = blockTypesArray;
 
@@ -121,14 +252,8 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	/// define buildUpdateTerrain to update the terrain
 	const buildUpdateTerrain = () => {
-		console.log("building update terrain: called");
+		if (!scene || !meshesInitializedRef.current) return;
 
-		if (!scene || !meshesInitializedRef.current){
-			console.log("building update terrain: not ready");
-			return;
-		}
-
-		//console.log("building update terrain: called");
 		const blockCountsByType = {};
 		const transformMatrix = new THREE.Matrix4();
 
@@ -138,37 +263,15 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		});
 
 		// Process each block in the terrain
-		Object.entries(terrainRef.current).forEach(([position, block]) => {
+		Object.entries(terrainRef.current).forEach(([position, blockId]) => {
 			const [x, y, z] = position.split(",").map(Number);
+			const blockMesh = instancedMeshRef.current[blockId];
 
-			// Skip environment objects - they're handled by EnvironmentBuilder
-			if (block.isEnvironment) return;
-
-			// Get the block mesh
-			const blockMesh = instancedMeshRef.current[block.id];
-
-			// If the block mesh exists, update it
 			if (blockMesh) {
-				//console.log("building update terrain: updating block mesh");
-				const instanceIndex = blockCountsByType[block.id] || 0;
-
-				// Resize instance buffer if needed
-				if (instanceIndex >= blockMesh.instanceMatrix.count) {
-					const expandedSize = Math.ceil(blockMesh.instanceMatrix.count * 1.5) + 1;
-					const resizedMesh = new THREE.InstancedMesh(blockMesh.geometry, blockMesh.material, Math.max(expandedSize, 10));
-					resizedMesh.count = blockMesh.count;
-					resizedMesh.instanceMatrix.set(blockMesh.instanceMatrix.array);
-
-					scene.remove(blockMesh);
-					scene.add(resizedMesh);
-					instancedMeshRef.current[block.id] = resizedMesh;
-				}
-
-				// Set block position in world space
-				transformMatrix.identity();
+				const instanceIndex = blockCountsByType[blockId] || 0;
 				transformMatrix.setPosition(x, y, z);
-				instancedMeshRef.current[block.id].setMatrixAt(instanceIndex, transformMatrix);
-				blockCountsByType[block.id] = instanceIndex + 1;
+				blockMesh.setMatrixAt(instanceIndex, transformMatrix);
+				blockCountsByType[blockId] = instanceIndex + 1;
 			}
 		});
 
@@ -179,10 +282,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			blockMesh.instanceMatrix.needsUpdate = true;
 		});
 
-		// Update UI block counts
-		blockCountsRef.current = blockCountsByType.length;
-
-		// Update block counts
 		blockCountsRef.current = blockCountsByType;
 		totalBlocksRef.current = Object.keys(terrainRef.current).length;
 
@@ -193,6 +292,42 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			.catch(error => console.error("Error saving terrain:", error));
 	};
 
+	const refreshBlockMeshes = () => {
+		if (!meshesInitializedRef.current || !scene) return;
+
+		// Clean up existing meshes
+		Object.entries(instancedMeshRef.current).forEach(([id, mesh]) => {
+			scene.remove(mesh);
+			if (mesh.geometry) mesh.geometry.dispose();
+			if (Array.isArray(mesh.material)) {
+				mesh.material.forEach((m) => m?.dispose());
+			} else if (mesh.material) {
+				mesh.material.dispose();
+			}
+			delete instancedMeshRef.current[id];
+		});
+
+		// Set a large initial instance count
+		const initialInstanceCount = BLOCK_INSTANCED_MESH_CAPACITY; // Adjust this number based on your expected maximum
+
+		// Initialize meshes for all block types
+		blockTypesArray.forEach((blockType) => {
+			const geometry = new THREE.BoxGeometry(1, 1, 1);
+			const materials = createBlockMaterial(blockType);
+
+			instancedMeshRef.current[blockType.id] = new THREE.InstancedMesh(
+				geometry,
+				blockType.isMultiTexture ? materials : materials[0],
+				initialInstanceCount
+			);
+
+			instancedMeshRef.current[blockType.id].userData.blockTypeId = blockType.id;
+			instancedMeshRef.current[blockType.id].count = 0;
+			instancedMeshRef.current[blockType.id].frustumCulled = false;
+			scene.add(instancedMeshRef.current[blockType.id]);
+		});
+	}
+	
 	/// Geometry and Material Helper Functions ///
 	/// Geometry and Material Helper Functions ///
 	/// Geometry and Material Helper Functions ///
@@ -261,67 +396,35 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			return Array(6).fill(material);
 		}
 
-		const sides = ["+x", "-x", "+y", "-y", "+z", "-z"];
+		// Order of faces in THREE.js BoxGeometry: right, left, top, bottom, front, back
+		const faceOrder = ['+x', '-x', '+y', '-y', '+z', '-z'];
 		const materials = [];
 
-		for (const side of sides) {
-			const sideTexture = `./assets/blocks/${blockType.name}/${side}.png`;
-			const fallbackTexture = `./assets/blocks/${blockType.name}.png`;
-
-			let texture;
-
-			try {
-				const loadTexture = (path) => {
-					const texture = new THREE.TextureLoader().load(path);
-					return texture;
-				};
-
-				if (blockType.isMultiTexture && blockType.sides.includes(side)) {
-					texture = loadTexture(sideTexture);
-				} else {
-					texture = loadTexture(fallbackTexture);
-					if (blockType.isMultiTexture) {
-						console.warn(`Missing side texture for ${blockType.name}, using single texture for all faces`);
-						const material = new THREE.MeshPhongMaterial({
-							map: texture,
-							color: 0xffffff,
-							transparent: true,
-							alphaTest: 0.5,
-							opacity: texture.name?.includes("water") ? 0.5 : 1,
-						});
-						return Array(6).fill(material);
-					}
-				}
-
-				texture.magFilter = THREE.NearestFilter;
-				texture.minFilter = THREE.NearestFilter;
-				texture.colorSpace = THREE.SRGBColorSpace;
-
-				materials.push(
-					new THREE.MeshPhongMaterial({
-						map: texture,
-						color: 0xffffff,
-						transparent: true,
-						alphaTest: 0.5,
-						opacity: texture.name?.includes("water") ? 0.5 : 1,
-						depthWrite: true,
-						depthTest: true,
-					})
-				);
-			} catch (error) {
-				console.error(`Error loading texture for ${blockType.name}:`, error);
-				// Load error texture instead
-				const errorTexture = new THREE.TextureLoader().load("./assets/blocks/error.png");
-				errorTexture.magFilter = THREE.NearestFilter;
-				errorTexture.minFilter = THREE.NearestFilter;
-				errorTexture.colorSpace = THREE.SRGBColorSpace;
-
-				const errorMaterial = new THREE.MeshPhongMaterial({
-					map: errorTexture,
-					color: 0xffffff,
-				});
-				return Array(6).fill(errorMaterial);
+		for (const face of faceOrder) {
+			let texturePath;
+			
+			if (blockType.isMultiTexture && blockType.sideTextures[face]) {
+				texturePath = blockType.sideTextures[face];
+			} else {
+				texturePath = blockType.textureUri;
 			}
+
+			const texture = new THREE.TextureLoader().load(texturePath);
+			texture.magFilter = THREE.NearestFilter;
+			texture.minFilter = THREE.NearestFilter;
+			texture.colorSpace = THREE.SRGBColorSpace;
+
+			materials.push(
+				new THREE.MeshPhongMaterial({
+					map: texture,
+					color: 0xffffff,
+					transparent: true,
+					alphaTest: 0.5,
+					opacity: texturePath.includes("water") ? 0.5 : 1,
+					depthWrite: true,
+					depthTest: true,
+				})
+			);
 		}
 
 		return materials;
@@ -361,49 +464,62 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	const handleBlockPlacement = () => {
 		if (!modeRef.current || !isPlacingRef.current) return;
 
-		// Handle environment models separately
-		// we only place one environment model at a time
-		if (currentBlockTypeRef.current?.isEnvironment && isFirstBlockRef.current === true) {
-			environmentBuilderRef.current.placeEnvironmentModel(previewPositionRef.current.clone());
-			isFirstBlockRef.current = false;
-			return;
-		}
-		else if (currentBlockTypeRef.current?.isEnvironment && isFirstBlockRef.current === false) {
+		if (currentBlockTypeRef.current?.isEnvironment) {
+			if (isFirstBlockRef.current) {
+				environmentBuilderRef.current.placeEnvironmentModel(previewPositionRef.current.clone());
+				isFirstBlockRef.current = false;
+			}
 			return;
 		}
 
 		const newPlacementPosition = previewPositionRef.current.clone();
-
-		// Get all positions to place/remove blocks
 		const positions = getPlacementPositions(newPlacementPosition, placementSizeRef.current);
 		let terrainChanged = false;
 
 		positions.forEach((pos) => {
 			const key = `${pos.x},${pos.y},${pos.z}`;
+			const blockMesh = instancedMeshRef.current[currentBlockTypeRef.current.id];
+
 			if (modeRef.current === "add") {
-				// Only place if there isn't already a block here
 				if (!terrainRef.current[key]) {
-					terrainRef.current[key] = { ...currentBlockTypeRef.current };
+					terrainRef.current[key] = currentBlockTypeRef.current.id;
 					terrainChanged = true;
-					// Add to recently placed blocks
 					recentlyPlacedBlocksRef.current.add(key);
+
+					// Update instanced mesh directly
+					const instanceIndex = blockCountsRef.current[currentBlockTypeRef.current.id] || 0;
+					const matrix = new THREE.Matrix4().setPosition(pos.x, pos.y, pos.z);
+					blockCountsRef.current[currentBlockTypeRef.current.id] = instanceIndex + 1;
+					blockMesh.setMatrixAt(instanceIndex, matrix);
+					blockMesh.count = instanceIndex + 1;
+					blockMesh.instanceMatrix.needsUpdate = true;
 				}
 			} else if (modeRef.current === "remove") {
 				if (terrainRef.current[key]) {
 					delete terrainRef.current[key];
 					terrainChanged = true;
+					// Mark for rebuild since removal is more complex
+					meshesNeedsRefresh = true;
 				}
 			}
 		});
 
-		// Set isFirstBlockRef to false after first block placement
 		if (isFirstBlockRef.current) {
 			isFirstBlockRef.current = false;
 		}
 
 		if (terrainChanged) {
-			buildUpdateTerrain();
 			totalBlocksRef.current = Object.keys(terrainRef.current).length;
+			updateDebugInfo();
+
+			// Save terrain to storage asynchronously
+			DatabaseManager.saveData(STORES.TERRAIN, "current", terrainRef.current)
+				.catch(error => console.error("Error saving terrain:", error));
+
+			if (meshesNeedsRefresh) {
+				buildUpdateTerrain(); // Only rebuild if necessary (e.g., removal)
+				meshesNeedsRefresh = false;
+			}
 		}
 	};
 
@@ -413,47 +529,34 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	/// Raycast and Grid Intersection Functions ///
 
 	const getRaycastIntersection = (raycastOrigin) => {
-		// Remove the filtering that's causing problems
-		const raycastIntersects = raycastOrigin.intersectObjects(scene.children);
-		
+		const raycastIntersects = raycastOrigin.intersectObjects(scene.children, false);
+
 		if (!raycastIntersects.length) return null;
 
-		// First, try to find a valid block intersection
-		let rayHitBlock = null;
-		let rayHitShadowPlane = null;
-
-		// First pass: find any block intersection and the shadow plane
-		for (const intersect of raycastIntersects) {
+		// Filter intersections to only consider active instances
+		const rayHitBlock = raycastIntersects.find(intersect => {
 			if (intersect.object.isInstancedMesh) {
-				const blockPos = new THREE.Vector3().copy(intersect.point).sub(intersect.face.normal.multiplyScalar(0.5));
-				const roundedPos = new THREE.Vector3(
-					Math.round(blockPos.x),
-					Math.round(blockPos.y),
-					Math.round(blockPos.z)
-				);
-				
-				const posKey = `${roundedPos.x},${roundedPos.y},${roundedPos.z}`;
-				if (!recentlyPlacedBlocksRef.current.has(posKey)) {
-					rayHitBlock = intersect;
-					break; // Found a valid block intersection, no need to check further
-				}
-			} else if (intersect.object === shadowPlaneRef.current) {
-				rayHitShadowPlane = intersect;
+				return intersect.instanceId !== undefined && intersect.instanceId < intersect.object.count;
 			}
-		}
+			return false;
+		});
 
-		// Always prioritize block intersections over shadow plane
+		const rayHitShadowPlane = raycastIntersects.find(intersect => intersect.object === shadowPlaneRef.current);
+
 		if (rayHitBlock) {
 			return {
 				point: rayHitBlock.point,
 				normal: rayHitBlock.face.normal,
 			};
 		}
-		
+
 		if (rayHitShadowPlane) {
-			const startingPosition = new THREE.Vector3(rayHitShadowPlane.point.x, 0, rayHitShadowPlane.point.z);
 			return {
-				point: startingPosition,
+				point: new THREE.Vector3(
+					rayHitShadowPlane.point.x,
+					0,
+					rayHitShadowPlane.point.z
+				),
 				normal: rayHitShadowPlane.face.normal,
 			};
 		}
@@ -461,22 +564,27 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		return null;
 	};
 
-	// Function to update preview position based on mouse position
+	// Throttle mouse move updates
 	const updatePreviewPosition = () => {
-		// Cache the canvas rect calculation outside the update loop
-		// since it rarely changes
+		// Skip update if we updated too recently
+		const now = performance.now();
+		if (now - updatePreviewPosition.lastUpdate < 10) { // ~60fps
+			return;
+		}
+		updatePreviewPosition.lastUpdate = now;
+
+		// Cache the canvas rect calculation
 		if (!canvasRectRef.current) {
 			canvasRectRef.current = gl.domElement.getBoundingClientRect();
 		}
 
-		// Use cached rect
 		const rect = canvasRectRef.current;
 
-		// Reuse vectors instead of creating new ones
+		// Reuse vectors for normalized mouse position
 		normalizedMouseRef.current.x = ((((mouse.x + 1) / 2) * rect.width - rect.width / 2) / rect.width) * 2;
 		normalizedMouseRef.current.y = ((((mouse.y + 1) / 2) * rect.height - rect.height / 2) / rect.height) * 2;
 
-		// Use the same raycaster instead of setting from scratch
+		// Update raycaster
 		raycaster.ray.origin.copy(camera.position);
 		raycaster.ray.direction
 			.set(normalizedMouseRef.current.x, normalizedMouseRef.current.y, 0.5)
@@ -485,10 +593,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			.normalize();
 
 		const intersection = getRaycastIntersection(raycaster);
-
-		if (!intersection) {
-			return;
-		}
+		if (!intersection) return;
 
 		if (!currentBlockTypeRef?.current?.isEnvironment) {
 			// Reuse vector for grid position calculation
@@ -575,6 +680,8 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			handleBlockPlacement();
 		}
 	};
+
+	updatePreviewPosition.lastUpdate = 0;
 
 	// Move undo state saving to handlePointerUp
 	const handleMouseUp = (event) => {
@@ -704,46 +811,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		return positions;
 	};
 
-	// Update the useEffect that handles custom blocks
-	useEffect(() => {
-		if (!meshesInitializedRef.current) return;
-
-		const currentCustomBlockIds = new Set(customBlocks.map((block) => block.id));
-
-		// Clean up removed custom blocks
-		Object.entries(instancedMeshRef.current).forEach(([id, mesh]) => {
-			const numericId = parseInt(id);
-			if (numericId >= 500 && !currentCustomBlockIds.has(numericId)) {
-				scene.remove(mesh);
-				if (mesh.geometry) mesh.geometry.dispose();
-				if (Array.isArray(mesh.material)) {
-					mesh.material.forEach((m) => m?.dispose());
-				} else if (mesh.material) {
-					mesh.material.dispose();
-				}
-				delete instancedMeshRef.current[id];
-			}
-		});
-
-		// Initialize new custom blocks
-		customBlocks.forEach((blockType) => {
-			if (!instancedMeshRef.current[blockType.id]) {
-				const geometry = new THREE.BoxGeometry(1, 1, 1);
-				const materials = createBlockMaterial(blockType);
-
-				instancedMeshRef.current[blockType.id] = new THREE.InstancedMesh(
-					geometry,
-					materials[0], // Use first material for all faces
-					1
-				);
-
-				instancedMeshRef.current[blockType.id].userData.blockTypeId = blockType.id;
-				instancedMeshRef.current[blockType.id].count = 0;
-				scene.add(instancedMeshRef.current[blockType.id]);
-			}
-		});
-	}, [customBlocks, scene]);
-
 	const getCurrentTerrainData = () => {
 		return terrainRef.current;
 	};
@@ -770,6 +837,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	const updateTerrainFromToolBar = (terrainData) => {
 		terrainRef.current = terrainData;
+		console.log("Calling Build Update Terrain from updateTerrainFromToolBar");
 		buildUpdateTerrain();
 	};
 
@@ -821,6 +889,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			.then(() => {
 				// Update local terrain state
 				terrainRef.current = {};
+				console.log("Calling Build Update Terrain from clearMap");
 				buildUpdateTerrain();
 				totalBlocksRef.current = 0;
 			})
@@ -829,16 +898,23 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			});
 	}
 
-	/// Mouse move update preview position and handle block placement if mouse is down
+	// Update mousemove effect to use requestAnimationFrame
 	useEffect(() => {
-		const handleMouseMove = (event) => {
-			updatePreviewPosition();
+		let animationFrameId;
+		
+		const handleMouseMove = () => {
+			animationFrameId = requestAnimationFrame(updatePreviewPosition);
 		};
-		updatePreviewPosition();
 
 		window.addEventListener("mousemove", handleMouseMove);
-		return () => window.removeEventListener("mousemove", handleMouseMove);
-	}, []); // Keep empty dependency array since we want latest value from closure
+		
+		return () => {
+			window.removeEventListener("mousemove", handleMouseMove);
+			if (animationFrameId) {
+				cancelAnimationFrame(animationFrameId);
+			}
+		};
+	}, []);
 
 	// Define camera reset effects and axis lock effects
 	useEffect(() => {
@@ -890,11 +966,17 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 			// Initialize meshes
 			// Initialize only block types, environment models are handled by EnvironmentBuilder
-			for (const type of blockTypes) {
+			const initialInstanceCount = BLOCK_INSTANCED_MESH_CAPACITY; // Match the capacity used in refreshBlockMeshes
+
+			for (const type of blockTypesArray) {
 				let geometry = createBlockGeometry(type);
 				let material = createBlockMaterial(type);
 
-				instancedMeshRef.current[type.id] = new THREE.InstancedMesh(geometry, material, 1);
+				instancedMeshRef.current[type.id] = new THREE.InstancedMesh(
+					geometry,
+					Array.isArray(material) ? material : material[0],
+					initialInstanceCount
+				);
 				instancedMeshRef.current[type.id].frustumCulled = false;
 				instancedMeshRef.current[type.id].renderOrder = 1;
 				instancedMeshRef.current[type.id].userData.blockTypeId = type.id;
@@ -913,9 +995,11 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					if (customBlocksData && customBlocksData.length > 0) {
 						console.log("Loading custom blocks from IndexedDB:", customBlocksData.length);
 						// Update block types with custom blocks
-						updateBlockTypes(customBlocksData);
+						addCustomBlocks(customBlocksData);
 						
 						// Initialize meshes for custom blocks
+						const initialInstanceCount = BLOCK_INSTANCED_MESH_CAPACITY; // Match the initial capacity used elsewhere
+
 						for (const blockType of customBlocksData) {
 							if (!instancedMeshRef.current[blockType.id]) {
 								const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -923,12 +1007,13 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 								instancedMeshRef.current[blockType.id] = new THREE.InstancedMesh(
 									geometry,
-									materials[0], // Use first material for all faces
-									1
+									materials[0],
+									initialInstanceCount
 								);
 
 								instancedMeshRef.current[blockType.id].userData.blockTypeId = blockType.id;
 								instancedMeshRef.current[blockType.id].count = 0;
+								instancedMeshRef.current[blockType.id].frustumCulled = false;
 								scene.add(instancedMeshRef.current[blockType.id]);
 							}
 						}
@@ -951,13 +1036,12 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					if (savedTerrain) {
 						terrainRef.current = savedTerrain;
 						console.log("Terrain loaded from IndexedDB");
-						// Move these calls inside the callback after terrain is loaded
-						buildUpdateTerrain();
 						totalBlocksRef.current = Object.keys(terrainRef.current).length;
 					} else {
 						console.log("No terrain found in IndexedDB");
 						// Initialize with empty terrain
 						terrainRef.current = {};
+						console.log("Calling Build Update Terrain from Initialization useEffect (empty terrain)");
 						buildUpdateTerrain();
 						totalBlocksRef.current = 0;
 					}
@@ -969,6 +1053,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					if (mounted) {
 						meshesInitializedRef.current = true;
 						terrainRef.current = {};
+						console.log("Calling Build Update Terrain from Initialization useEffect (error)");
 						buildUpdateTerrain();
 						totalBlocksRef.current = 0;
 						setPageIsLoaded(true);
@@ -1001,6 +1086,16 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		};
 	}, [scene]); // Empty dependency array means this only runs on unmount
 
+	// effect to refresh meshes when the meshesNeedsRefresh flag is true
+	useEffect(() => {
+		if (meshesNeedsRefresh) {
+			console.log("Refreshing instance meshes due to new custom blocks");
+			refreshBlockMeshes();
+			buildUpdateTerrain();
+			meshesNeedsRefresh = false;
+		}
+	}, [meshesNeedsRefresh]);
+
 	// effect to update current block type reference when the prop changes
 	useEffect(() => {
 		currentBlockTypeRef.current = currentBlockType;
@@ -1018,6 +1113,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	/// build update terrain when the terrain state changes
 	useEffect(() => {
+		console.log("Calling Build Update Terrain from useEffect (terrain state changed)");
 		buildUpdateTerrain();
 	}, [terrainRef.current]);
 
@@ -1046,6 +1142,7 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 				} else {
 					terrainRef.current = {};
 				}
+				console.log("Calling Build Update Terrain from refreshTerrainFromDB");
 				buildUpdateTerrain();
 			} catch (err) {
 				console.error("Error reloading terrain from DB:", err);
@@ -1061,7 +1158,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		window.addEventListener('resize', handleResize);
 		return () => window.removeEventListener('resize', handleResize);
 	}, []);
-
 
 	//// HTML Return Render
 	return (

@@ -1,80 +1,37 @@
 import { DatabaseManager, STORES } from "./DatabaseManager";
-import { getBlockTypes, updateBlockTypes } from "./TerrainBuilder";
+import { getBlockTypes, addCustomBlocks } from "./TerrainBuilder";
 import { environmentModels } from "./EnvironmentBuilder";
 import * as THREE from "three";
 import JSZip from "jszip";
 import { version } from "./Constants";
 
-/**
- * Exports the current map (terrain and environment) as a JSON file
- * @returns {Promise<Blob>} A promise that resolves to a Blob containing the exported map
- */
-export const exportMap = async () => {
-  try {
-    // Get terrain data
-    const terrainData = await DatabaseManager.getData(STORES.TERRAIN, "current");
-    
-    // Get environment data
-    const environmentData = await DatabaseManager.getData(STORES.ENVIRONMENT, "current");
-    
-    // Get custom blocks data
-    const customBlocksData = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks");
-    
-    // Create the export object without version
-    const exportData = {
-      terrain: terrainData || {},
-      environment: environmentData || [],
-      customBlocks: customBlocksData || []
-    };
-    
-    // Convert to JSON and create a blob
-    const jsonString = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-    
-    return blob;
-  } catch (error) {
-    console.error("Error exporting map:", error);
-    throw error;
-  }
-};
 
-/**
- * Imports a map from a JSON file
- * @param {File} file The JSON file to import
- * @param {Object} terrainBuilderRef Reference to the TerrainBuilder component
- * @param {Object} environmentBuilderRef Reference to the EnvironmentBuilder component
- * @param {Function} setCustomBlocks Optional callback to update custom blocks state in a parent component
- * @returns {Promise<Object>} A promise that resolves to an object containing the imported data
- */
-export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, setCustomBlocks) => {
+export const importMap = async (file, terrainBuilderRef, environmentBuilderRef) => {
   try {
+    const reader = new FileReader();
+    
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
       reader.onload = async (event) => {
         try {
+          // get the data from the event, and convert it to a json object
           const importData = JSON.parse(event.target.result);
-          
-          // Check if this is a terrain.json format (with blocks and entities)
-          const isTerrainJsonFormat = importData.blocks && importData.entities;
-          
-          // Check if this is the older format with terrain property
-          const isOldFormat = importData.terrain;
-          
-          // Validate the imported data - accept either format
-          if (!isTerrainJsonFormat && !isOldFormat) {
-            throw new Error("Invalid map file format - no valid map data found");
-          }
+
+          console.log(importData);
           
           let terrainData = {};
           let environmentData = [];
           
-          // Process based on format
-          if (isTerrainJsonFormat) {
-            // Convert blocks format to terrain format
-            Object.entries(importData.blocks).forEach(([key, value]) => {
-              terrainData[key] = { id: value };
-            });
+          // Lets make sure there is data at all
+          if (importData.blocks) {
+              
+            /// process any custom blocks
+            addCustomBlocks(importData.blockTypes);
+
+            // Now process terrain data
+            terrainData = Object.entries(importData.blocks).reduce((acc, [key, blockId]) => {
+              acc[key] = blockId;
+              return acc;
+            }, {});
             
             // Convert entities to environment format
             if (importData.entities) {
@@ -116,10 +73,9 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, 
               
               console.log(`Imported ${environmentData.length} environment objects`);
             }
-          } else if (isOldFormat) {
-            // Use the old format directly
-            terrainData = importData.terrain;
-            environmentData = importData.environment || [];
+          } else {
+            alert("Invalid map file format - no valid map data found");
+            return;
           }
           
           // Save terrain data
@@ -127,67 +83,6 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, 
           
           // Save environment data
           await DatabaseManager.saveData(STORES.ENVIRONMENT, "current", environmentData);
-          
-          // Import custom blocks if they exist
-          let processedCustomBlocks = [];
-          if (importData.customBlocks && importData.customBlocks.length > 0) {
-            // Process custom blocks to add placeholder textures if needed
-            processedCustomBlocks = importData.customBlocks.map(block => {
-              // Check if the block has a valid texture URI
-              if (!block.textureUri) {
-                // No texture URI at all
-                return {
-                  ...block,
-                  textureUri: './assets/blocks/error.png',
-                  needsTexture: true
-                };
-              } 
-              
-              // Handle different texture URI formats
-              if (block.textureUri.startsWith('data:image')) {
-                // Data URL - already valid
-                return block;
-              } else if (block.textureUri.includes('blocks/') || block.textureUri.includes('assets/blocks/')) {
-                // Relative path to a texture file
-                // Mark it as needing texture but provide the correct path format
-                const textureName = block.textureUri.split('/').pop().replace('.png', '');
-                
-                // Update the block name if it's not already set
-                const blockName = block.name || textureName;
-                
-                return {
-                  ...block,
-                  name: blockName,
-                  textureUri: './assets/blocks/error.png',
-                  originalTexturePath: block.textureUri, // Store the original path for reference
-                  needsTexture: true
-                };
-              } else {
-                // Unknown format, use error texture
-                return {
-                  ...block,
-                  textureUri: './assets/blocks/error.png',
-                  needsTexture: true
-                };
-              }
-            });
-            
-            // Save to database
-            await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, "blocks", processedCustomBlocks);
-            
-            // Update block types with the imported custom blocks
-            updateBlockTypes(processedCustomBlocks);
-            
-            // If a callback was provided, update the state in the parent component
-            if (typeof setCustomBlocks === 'function') {
-              setCustomBlocks(processedCustomBlocks);
-            }
-            
-            // Force BlockToolsSidebar to refresh
-            window.dispatchEvent(new CustomEvent('custom-blocks-updated', {
-              detail: { blocks: processedCustomBlocks }
-            }));
-          }
           
           // Refresh terrain and environment builders
           if (terrainBuilderRef && terrainBuilderRef.current) {
@@ -199,11 +94,7 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, 
             await environmentBuilderRef.current.refreshEnvironmentFromDB();
           }
           
-          resolve({
-            terrain: terrainData,
-            environment: environmentData,
-            customBlocks: processedCustomBlocks
-          });
+          resolve();
         } catch (error) {
           reject(error);
         }
@@ -217,47 +108,12 @@ export const importMap = async (file, terrainBuilderRef, environmentBuilderRef, 
     });
   } catch (error) {
     console.error("Error importing map:", error);
+    alert("Error importing map. Please try again.");
     throw error;
   }
 };
 
-/**
- * Exports custom blocks as an asset pack
- * @returns {Promise<Blob>} A promise that resolves to a Blob containing the exported asset pack
- */
-export const exportAssetPack = async () => {
-  try {
-    // Get custom blocks data
-    const customBlocksData = await DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks");
-    
-    // Get custom models data
-    const customModelsData = await DatabaseManager.getData(STORES.CUSTOM_MODELS, "models");
-    
-    // Create the export object without version
-    const exportData = {
-      blocks: customBlocksData || [],
-      models: customModelsData || []
-    };
-    
-    // Convert to JSON and create a blob
-    const jsonString = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-    
-    return blob;
-  } catch (error) {
-    console.error("Error exporting asset pack:", error);
-    throw error;
-  }
-};
-
-/**
- * Imports an asset pack from a JSON file
- * @param {File} file The JSON file to import
- * @param {Object} environmentBuilderRef Reference to the EnvironmentBuilder component
- * @param {Function} setCustomBlocks Optional callback to update custom blocks state in a parent component
- * @returns {Promise<Object>} A promise that resolves to an object containing the imported data
- */
-export const importAssetPack = async (file, environmentBuilderRef, setCustomBlocks) => {
+export const importAssetPack = async (file, environmentBuilderRef) => {
   try {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -298,19 +154,7 @@ export const importAssetPack = async (file, environmentBuilderRef, setCustomBloc
             await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, "blocks", customBlocks);
             
             // Update block types with the imported custom blocks
-            updateBlockTypes(customBlocks);
-            
-            // If a callback was provided, update the state in the parent component
-            if (typeof setCustomBlocks === 'function') {
-              setCustomBlocks(customBlocks);
-            }
-            
-            // Force BlockToolsSidebar to refresh (if no callback was provided)
-            if (!setCustomBlocks) {
-              window.dispatchEvent(new CustomEvent('custom-blocks-updated', {
-                detail: { blocks: customBlocks }
-              }));
-            }
+            //addCustomBlocks(customBlocks);
           }
           
           // Import custom models if they exist
@@ -331,10 +175,7 @@ export const importAssetPack = async (file, environmentBuilderRef, setCustomBloc
             }
           }
           
-          resolve({
-            blocks: customBlocks,
-            models: customModels
-          });
+          resolve();
         } catch (error) {
           reject(error);
         }
@@ -352,11 +193,6 @@ export const importAssetPack = async (file, environmentBuilderRef, setCustomBloc
   }
 };
 
-/**
- * Exports the current map as a JSON file (just the map data, not the full asset pack)
- * @param {Object} terrainBuilderRef Reference to the TerrainBuilder component
- * @returns {Promise<void>}
- */
 export const exportMapFile = async (terrainBuilderRef) => {
   try {
     if (!terrainBuilderRef.current.getCurrentTerrainData() || 
@@ -371,7 +207,7 @@ export const exportMapFile = async (terrainBuilderRef) => {
     // Simplify terrain data to just include block IDs
     const simplifiedTerrain = Object.entries(terrainBuilderRef.current.getCurrentTerrainData()).reduce((acc, [key, value]) => {
       if (key.split(",").length === 3) {
-        acc[key] = value.id;
+        acc[key] = value;
       }
       return acc;
     }, {});
@@ -389,6 +225,8 @@ export const exportMapFile = async (terrainBuilderRef) => {
               name: block.name,
               textureUri: block.isMultiTexture ? `blocks/${block.name}` : `blocks/${block.name}.png`,
               isCustom: block.isCustom || false,
+              isMultiTexture: block.isMultiTexture || false,
+              sideTextures: block.sideTextures || {},
             },
           ])
         ).values()
@@ -449,20 +287,6 @@ export const exportMapFile = async (terrainBuilderRef) => {
   }
 };
 
-/**
- * Scans the assets directory to get a list of all asset files
- * @returns {Promise<string[]>} A promise that resolves to an array of file paths
- */
-const scanDirectory = async () => {
-  const context = require.context("../../public/assets", true, /\.(png|jpe?g|glb|gltf|json|wav|mp3|ogg|pem|key|crt)$/);
-  return context.keys().map((key) => key.replace("./", ""));
-};
-
-/**
- * Exports the current map and all assets as a complete ZIP package
- * @param {Object} terrainBuilderRef Reference to the TerrainBuilder component
- * @returns {Promise<void>}
- */
 export const exportFullAssetPack = async (terrainBuilderRef) => {
   try {
     if (!terrainBuilderRef.current.getCurrentTerrainData() || 
@@ -501,7 +325,7 @@ export const exportFullAssetPack = async (terrainBuilderRef) => {
     // Simplify terrain data
     const simplifiedTerrain = Object.entries(terrainBuilderRef.current.getCurrentTerrainData()).reduce((acc, [key, value]) => {
       if (key.split(",").length === 3) {
-        acc[key] = value.id;
+        acc[key] = value;
       }
       return acc;
     }, {});
@@ -517,8 +341,10 @@ export const exportFullAssetPack = async (terrainBuilderRef) => {
             {
               id: block.id,
               name: block.name,
-              textureUri: block.isMultiTexture ? `blocks/${block.name}` : `blocks/${block.name}.png`,
+              textureUri: block.textureUri,
               isCustom: block.isCustom || false,
+              isMultiTexture: block.isMultiTexture || false,
+              sideTextures: block.sideTextures || {},
             },
           ])
         ).values()
@@ -630,4 +456,9 @@ export const exportFullAssetPack = async (terrainBuilderRef) => {
     alert("Error exporting map. Please try again.");
     throw error;
   }
+};
+
+const scanDirectory = async () => {
+  const context = require.context("../../public/assets", true, /\.(png|jpe?g|glb|gltf|json|wav|mp3|ogg|pem|key|crt)$/);
+  return context.keys().map((key) => key.replace("./", ""));
 };

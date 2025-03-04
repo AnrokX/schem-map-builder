@@ -19,6 +19,7 @@ import {DatabaseManager} from './js/DatabaseManager';
 import UnderConstruction from "./js/components/UnderConstruction";
 import UndoRedoManager from "./js/UndoRedo";
 import QuickTips from './js/components/QuickTips';
+import {getCustomBlocks} from "./js/TerrainBuilder";
 
 function App() {
   const undoRedoManagerRef = useRef(null);
@@ -32,14 +33,13 @@ function App() {
   const [placementSize, setPlacementSize] = useState("single");
   const [activeTab, setActiveTab] = useState("blocks");
   const [pageIsLoaded, setPageIsLoaded] = useState(false);
-  const [currentDraggingBlock, setCurrentDraggingBlock] = useState(null);
   const handleDropRef = useRef(null);
-  const [customBlocks, setCustomBlocks] = useState([]);
   const [scene, setScene] = useState(null);
   const [totalEnvironmentObjects, setTotalEnvironmentObjects] = useState(0);
   const [gridSize, setGridSize] = useState(100);
   const [currentPreviewPosition, setCurrentPreviewPosition] = useState(null);
   const environmentBuilderRef = useRef(null);
+  const blockToolsRef = useRef(null);
   const terrainBuilderRef = useRef(null);
   const [placementSettings, setPlacementSettings] = useState({
     randomScale: false,
@@ -59,7 +59,7 @@ function App() {
         const blockId = parseInt(savedBlockId);
         
         if (blockId < 200) {
-          const block = [...blockTypes, ...customBlocks].find(b => b.id === blockId);
+          const block = [...blockTypes, ...getCustomBlocks()].find(b => b.id === blockId);
           if (block) {
             setCurrentBlockType(block);
             setActiveTab("blocks");
@@ -79,12 +79,7 @@ function App() {
     if (pageIsLoaded) {
       loadSavedToolSelection();
     }
-  }, [customBlocks, pageIsLoaded]);
-
-  /// this listens for the state change of the block type and updates the current block type
-  const handleBlockTypeChange = (newBlockType) => {
-    setCurrentBlockType(newBlockType);
-  };
+  }, [pageIsLoaded]);
 
   const LoadingScreen = () => (
     <div className="loading-screen">
@@ -113,19 +108,18 @@ function App() {
       <QuickTips />
 
       <BlockToolsSidebar
+        terrainBuilderRef={terrainBuilderRef}
         activeTab={activeTab}
-        blockTypes={blockTypes}
-        customBlocks={customBlocks}
-        setCustomBlocks={setCustomBlocks}
-        setCurrentBlockType={handleBlockTypeChange}
         setActiveTab={setActiveTab}
-        environmentBuilderRef={environmentBuilderRef}
+        setCurrentBlockType={setCurrentBlockType}
+        environmentBuilder={environmentBuilderRef.current}
         onPlacementSettingsChange={setPlacementSettings}
       />
 
       <Canvas shadows className="canvas-container">
         <TerrainBuilder
           ref={terrainBuilderRef}
+          blockToolsRef={blockToolsRef}
           currentBlockType={currentBlockType}
           mode={mode}
           setDebugInfo={setDebugInfo}
@@ -136,9 +130,7 @@ function App() {
           cameraAngle={cameraAngle}
           onCameraAngleChange={setCameraAngle}
           setPageIsLoaded={setPageIsLoaded}
-          currentDraggingBlock={currentDraggingBlock}
           onHandleDropRef={(fn) => (handleDropRef.current = fn)}
-          customBlocks={customBlocks}
           onSceneReady={(sceneObject) => setScene(sceneObject)}
           totalEnvironmentObjects={totalEnvironmentObjects}
           gridSize={gridSize}

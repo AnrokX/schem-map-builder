@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { FaUpload, FaCube, FaTree, FaExclamationTriangle } from "react-icons/fa";
+import { FaUpload, FaCube, FaTree } from "react-icons/fa";
 import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import { DatabaseManager, STORES } from '../DatabaseManager';
 import { environmentModels } from '../EnvironmentBuilder';
-import { updateBlockTypes, blockTypes } from '../TerrainBuilder';
+import { blockTypes, addCustomBlocks, getCustomBlocks, removeCustomBlocks, updateCustomBlock, getBlockTypes } from '../TerrainBuilder';
 import "../../css/BlockToolsSidebar.css";
 
 const SCALE_MIN = 0.1;
@@ -14,14 +14,17 @@ const ROTATION_MAX = 360;
 
 let selectedBlockID = 0;
 
+export const refreshBlockTools = () => {
+  const event = new CustomEvent('refreshBlockTools');
+  window.dispatchEvent(event);
+};
+
 const BlockToolsSidebar = ({
   activeTab,
-  customBlocks,
+  terrainBuilderRef,
   setActiveTab,
-  setCustomBlocks,
   setCurrentBlockType,
   environmentBuilder,
-  updateTerrainWithHistory,
   onPlacementSettingsChange,
 }) => {
   const [settings, setSettings] = useState({
@@ -34,6 +37,21 @@ const BlockToolsSidebar = ({
     scale: 1.0,
     rotation: 0
   });
+
+  const [customBlocks, setCustomBlocks] = useState([]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      setCustomBlocks(getCustomBlocks());
+    };
+    
+    // Initial load
+    handleRefresh();
+    
+    // Listen for refresh events
+    window.addEventListener('refreshBlockTools', handleRefresh);
+    return () => window.removeEventListener('refreshBlockTools', handleRefresh);
+  }, []);
 
   const updateSettings = (updates) => {
     const newSettings = { ...settings, ...updates };
@@ -63,12 +81,10 @@ const BlockToolsSidebar = ({
     const confirmMessage = `Deleting "${blockType.name}" will replace any instances of this block with an error texture. Are you sure you want to proceed?`;
     
     if (window.confirm(confirmMessage)) {
-      const updatedBlocks = customBlocks.filter(b => b.id !== blockType.id);
-      setCustomBlocks(updatedBlocks);
+      // Just pass the ID of the block to remove
+      removeCustomBlocks(blockType.id);
       
       try {
-        await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-        
         // Update terrain to replace deleted block instances with error blocks
         const currentTerrain = await DatabaseManager.getData(STORES.TERRAIN, 'current') || {};
         const newTerrain = { ...currentTerrain };
@@ -90,7 +106,7 @@ const BlockToolsSidebar = ({
         });
         
         await DatabaseManager.saveData(STORES.TERRAIN, 'current', newTerrain);
-        updateTerrainWithHistory(newTerrain);
+        terrainBuilderRef.current.buildUpdateTerrain();
       } catch (error) {
         console.error('Error updating database after block deletion:', error);
       }
@@ -151,91 +167,53 @@ const BlockToolsSidebar = ({
   };
 
 
-  const handleDrop = async (e) => {
+  const handleCustomAssetDropUpload = async (e) => {
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
-
     const files = Array.from(e.dataTransfer.files);
     
     if (activeTab === "blocks") {
       const imageFiles = files.filter(file => file.type.startsWith("image/"));
-
+      
       if (imageFiles.length > 0) {
-        for (const file of imageFiles) {
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const fileName = file.name.replace(/\.[^/.]+$/, "");
-            
-            // First check if there's a block needing texture with matching name
-            const blocksNeedingTexture = customBlocks.filter(block => block.needsTexture);
-            const matchingBlockByName = blocksNeedingTexture.find(
-              block => block.name.toLowerCase() === fileName.toLowerCase()
-            );
-            
-            if (matchingBlockByName) {
-              // Update the existing block that needs a texture
-              const updatedBlocks = customBlocks.map(block => 
-                block.id === matchingBlockByName.id 
-                  ? { ...block, textureUri: reader.result, needsTexture: false }
-                  : block
-              );
+        const allBlocks = getBlockTypes();
+        
+        // Create a promise for each file processing
+        const filePromises = imageFiles.map(file => {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const fileName = file.name.replace(/\.[^/.]+$/, "");
               
-              setCustomBlocks(updatedBlocks);
-              updateBlockTypes(updatedBlocks);
-              
-              try {
-                await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-                console.log(`Updated texture for block: ${fileName}`);
-              } catch (error) {
-                console.error('Error updating block texture:', error);
-              }
-            } else {
-              // Check if there's an existing block with the same name but no texture issues
-              const existingBlockIndex = customBlocks.findIndex(
+              const existingBlock = allBlocks.find(
                 block => block.name.toLowerCase() === fileName.toLowerCase()
               );
               
-              if (existingBlockIndex !== -1) {
-                // Update the existing block's texture
-                const updatedBlocks = [...customBlocks];
-                updatedBlocks[existingBlockIndex] = {
-                  ...updatedBlocks[existingBlockIndex],
-                  textureUri: reader.result
-                };
-                
-                setCustomBlocks(updatedBlocks);
-                updateBlockTypes(updatedBlocks);
-                
-                try {
-                  await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-                  console.log(`Updated texture for existing block: ${fileName}`);
-                } catch (error) {
-                  console.error('Error updating custom block:', error);
-                }
+              if (existingBlock) {
+                updateCustomBlock({
+                  name: existingBlock.name,
+                  textureUri: reader.result,
+                  hasMissingTexture: false,
+                });
               } else {
-                // Create a completely new block
-                const maxId = Math.max(...customBlocks.map(block => block.id), 99);
-                const newBlockType = {
-                  id: maxId + 1,
+                addCustomBlocks([{
                   name: fileName,
                   textureUri: reader.result,
                   isCustom: true,
-                };
-                
-                const updatedBlocks = [...customBlocks, newBlockType];
-                setCustomBlocks(updatedBlocks);
-                updateBlockTypes(updatedBlocks);
-                
-                try {
-                  await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', updatedBlocks);
-                } catch (error) {
-                  console.error('Error saving custom blocks:', error);
-                }
+                  isEnvironment: false,
+                  isMultiTexture: false,
+                  hasMissingTexture: false,
+                  sideTextures: {}
+                }]);
               }
-            }
-          };
-          reader.readAsDataURL(file);
-        }
+              resolve();
+            };
+            reader.readAsDataURL(file);
+          });
+        });
+
+        // Wait for all files to be processed
+        await Promise.all(filePromises);
       }
     } else if (activeTab === "environment") {
       const gltfFiles = files.filter(file => file.name.endsWith('.gltf'));
@@ -290,29 +268,6 @@ const BlockToolsSidebar = ({
     }
   };
 
-  // Update the useEffect hook to listen for both custom events
-  useEffect(() => {
-    const handleCustomBlocksUpdated = (event) => {
-      if (event.detail && event.detail.blocks) {
-        setCustomBlocks(event.detail.blocks);
-      }
-    };
-    
-    const handleCustomBlocksLoaded = (event) => {
-      if (event.detail && event.detail.blocks) {
-        setCustomBlocks(event.detail.blocks);
-      }
-    };
-    
-    window.addEventListener('custom-blocks-updated', handleCustomBlocksUpdated);
-    window.addEventListener('custom-blocks-loaded', handleCustomBlocksLoaded);
-    
-    return () => {
-      window.removeEventListener('custom-blocks-updated', handleCustomBlocksUpdated);
-      window.removeEventListener('custom-blocks-loaded', handleCustomBlocksLoaded);
-    };
-  }, [setCustomBlocks]);
-
   return (
     <div className="block-tools-container">
       <div className="dead-space"></div>
@@ -336,13 +291,8 @@ const BlockToolsSidebar = ({
                   handleDragStart={handleDragStart}
                 />
               ))}
-              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
+              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left", marginTop: "10px" }}>
                 Custom Blocks (ID: 100-199)
-                {customBlocks.some(block => block.needsTexture) && (
-                  <span style={{ color: "#ff9900", marginLeft: "5px" }}>
-                    <FaExclamationTriangle /> Some blocks need textures
-                  </span>
-                )}
               </div>
               {customBlocks.map((blockType) => (
                 <BlockButton
@@ -596,7 +546,7 @@ const BlockToolsSidebar = ({
             e.preventDefault();
             e.currentTarget.classList.remove("drag-over");
           }}
-          onDrop={handleDrop}
+          onDrop={handleCustomAssetDropUpload}
         >
           <div className="drop-zone-content">
             <div className="drop-zone-icons">
@@ -605,9 +555,7 @@ const BlockToolsSidebar = ({
             </div>
             <div className="drop-zone-text">
               {activeTab === "blocks" 
-                ? customBlocks.some(block => block.needsTexture)
-                  ? "Drag textures here to add new blocks or fix missing textures"
-                  : "Drag textures here to add new blocks"
+                ? "Drag textures here to add new blocks or fix missing textures"
                 : "Drag .gltf models here to add new environment objects"}
             </div>
           </div>

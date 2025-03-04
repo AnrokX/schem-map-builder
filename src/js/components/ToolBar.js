@@ -46,6 +46,13 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	};
 
 	const handleGenerateBlocks = () => {
+
+		if(currentBlockType.id > 199)
+		{
+			alert("Not Compatible with Environment Objects... \n\nPlease select a block and try again!");
+			return;
+		}
+
 		const { width, length, height } = dimensions;
 		
 		// Validate dimensions
@@ -81,7 +88,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 
 					// Add block to terrain data
 					const key = `${position.x},${position.y},${position.z}`;
-					terrainData[key] = { ...currentBlockType };
+					terrainData[key] = currentBlockType.id;
 					blocksAdded++;
 				}
 			}
@@ -103,6 +110,13 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	};
 
 	const handleGenerateBorder = () => {
+
+		if(currentBlockType.id > 199)
+		{
+			alert("Not Compatible with Environment Objects... \n\nPlease select a block and try again!");
+			return;
+		}
+
 		const { width, length, height } = borderDimensions;
 
 		// Validate dimensions
@@ -133,7 +147,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 							z: startPos.z + z,
 						};
 						const key = `${position.x},${position.y},${position.z}`;
-						terrainData[key] = { ...currentBlockType };
+						terrainData[key] = currentBlockType.id;
 					}
 				}
 			}
@@ -152,6 +166,13 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	};
 
 	const generateTerrain = () => {
+
+		if(currentBlockType.id > 199)
+		{
+			alert("Not Compatible with Environment Objects... \n\nPlease select a block and try again!");
+			return;
+		}
+
 		// Get current terrain data or start with empty object if clearing map
 		let terrainData = terrainSettings.clearMap 
 			? {} 
@@ -230,7 +251,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					const key = `${worldX},${y},${worldZ}`;
 					
 					// Use current block type for all blocks
-					terrainData[key] = { ...currentBlockType };
+					terrainData[key] = currentBlockType.id;
 				}
 			}
 		}
@@ -243,11 +264,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 		
 		setShowTerrainModal(false);
-	};
-
-	const scanDirectory = async () => {
-		const context = require.context("../../../public/assets", true, /\.(png|jpe?g|glb|gltf|json|wav|mp3|ogg|pem|key|crt)$/);
-		return context.keys().map((key) => key.replace("./", ""));
 	};
 
 	const handleExport = () => {

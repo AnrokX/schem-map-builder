@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { DatabaseManager, STORES } from './DatabaseManager';
+import { ENVIRONMENT_INSTANCED_MESH_CAPACITY } from './Constants';
 
 export const environmentModels = (() => {
   try {
@@ -202,9 +203,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         
         gltf.scene.traverse(object => {
             if (object.isMesh) {
-                // No need for updateWorldMatrix here since matrices are already updated
                 const worldMatrix = object.matrixWorld.clone();
-                
                 const materials = Array.isArray(object.material) ? object.material : [object.material];
                 
                 materials.forEach((material, materialIndex) => {
@@ -222,12 +221,10 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
                         });
                     }
                     
-                    // Clone geometry and apply world transform
                     const geometry = object.geometry.clone();
                     geometry.applyMatrix4(worldMatrix);
                     
                     if (Array.isArray(object.material)) {
-                        // Handle multi-material meshes
                         const filteredGeometry = filterGeometryByMaterialIndex(geometry, materialIndex);
                         if (filteredGeometry) {
                             geometriesByMaterial.get(key).geometries.push(filteredGeometry);
@@ -239,51 +236,34 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             }
         });
 
-        // Get initial capacity by checking saved environment data
-        const getSavedEnvironmentCount = async () => {
-            try {
-                const savedEnvironment = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
-                if (Array.isArray(savedEnvironment)) {
-                    // Count objects of this specific model type
-                    return savedEnvironment.filter(obj => obj.name === modelType.name).length;
-                }
-            } catch (error) {
-                console.warn('Error getting saved environment count:', error);
+        // Set a large initial capacity
+        const initialCapacity = ENVIRONMENT_INSTANCED_MESH_CAPACITY; // Adjust as needed based on your expected maximum
+
+        const instancedMeshArray = [];
+        for (const { material, geometries } of geometriesByMaterial.values()) {
+            if (geometries.length > 0) {
+                const mergedGeometry = mergeGeometries(geometries);
+                const instancedMesh = new THREE.InstancedMesh(
+                    mergedGeometry,
+                    material,
+                    initialCapacity
+                );
+                
+                instancedMesh.frustumCulled = false;
+                instancedMesh.renderOrder = 1;
+                instancedMesh.count = 0;
+                scene.add(instancedMesh);
+                instancedMeshArray.push(instancedMesh);
+
+                mergedGeometry.computeBoundingBox();
+                mergedGeometry.computeBoundingSphere();
             }
-            return 0;
-        };
+        }
 
-        // Create instanced meshes with appropriate initial capacity
-        getSavedEnvironmentCount().then(savedCount => {
-            const initialCapacity = Math.max(10, savedCount * 2); // Use double the saved count or 10, whichever is larger
-
-            const instancedMeshArray = [];
-            for (const {material, geometries} of geometriesByMaterial.values()) {
-                if (geometries.length > 0) {
-                    const mergedGeometry = mergeGeometries(geometries);
-                    const instancedMesh = new THREE.InstancedMesh(
-                        mergedGeometry,
-                        material,
-                        initialCapacity
-                    );
-                    
-                    instancedMesh.frustumCulled = false;
-                    instancedMesh.renderOrder = 1;
-                    instancedMesh.count = 0;
-                    scene.add(instancedMesh);
-                    instancedMeshArray.push(instancedMesh);
-
-                    mergedGeometry.computeBoundingBox();
-                    mergedGeometry.computeBoundingSphere();
-                }
-            }
-
-            // Store all instanced meshes for this model
-            instancedMeshes.current.set(modelType.modelUrl, {
-                meshes: instancedMeshArray,
-                instances: new Map(),
-                modelHeight: boundingHeight
-            });
+        instancedMeshes.current.set(modelType.modelUrl, {
+            meshes: instancedMeshArray,
+            instances: new Map(),
+            modelHeight: boundingHeight
         });
     };
 
@@ -541,11 +521,13 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         validMeshes.forEach(mesh => {
             const currentCapacity = mesh.instanceMatrix.count;
             if (instanceId >= currentCapacity - 1) {
-                expandInstancedMeshCapacity(modelUrl);
-                // Re-get the valid meshes as they might have been replaced
-                const updatedValidMeshes = instancedData.meshes.filter(m => m !== undefined && m !== null);
-                validMeshes.length = 0;
-                updatedValidMeshes.forEach(m => validMeshes.push(m));
+                // expandInstancedMeshCapacity(modelUrl);
+                // // Re-get the valid meshes as they might have been replaced
+                // const updatedValidMeshes = instancedData.meshes.filter(m => m !== undefined && m !== null);
+                // validMeshes.length = 0;
+                // updatedValidMeshes.forEach(m => validMeshes.push(m));
+                alert("Maximum Environment Objects Exceeded! Please clear the environment and try again.");
+                return;
             }
             
             mesh.count = Math.max(mesh.count, instanceId + 1);
@@ -642,38 +624,41 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         const placementPositions = getPlacementPositions(placeholderMeshRef.current.position, placementSizeRef.current);
         const addedObjects = [];
 
+        // Find the highest instance ID across ALL models
+        let highestInstanceId = -1;
+        for (const [_, data] of instancedMeshes.current) {
+            if (data.instances.size > 0) {
+                const maxId = Math.max(...Array.from(data.instances.keys()));
+                highestInstanceId = Math.max(highestInstanceId, maxId);
+            }
+        }
+
+        // Start from the next available ID
+        let nextInstanceId = highestInstanceId + 1;
+
         // Check and expand capacity for all objects we're about to place
-        const totalNeededInstances = instancedData.instances.size + placementPositions.length;
+        const totalNeededInstances = nextInstanceId + placementPositions.length;
         const currentCapacity = instancedData.meshes[0]?.instanceMatrix.count || 0;
         
-        // Get the starting instance ID
-        let nextInstanceId = instancedData.instances.size;
-        
-        // Ensure we have a set of all existing IDs to avoid conflicts
-        const existingIds = new Set(instancedData.instances.keys());
-        
         if (totalNeededInstances > currentCapacity) {
-            // Expand to double what we need to reduce future expansions
-            const newCapacity = Math.max(totalNeededInstances * 2, currentCapacity * 2);
-            expandInstancedMeshCapacity(modelUrl, newCapacity);
-            // Re-fetch instancedData after expansion
-            instancedData = instancedMeshes.current.get(modelUrl);
-            if (!instancedData || !instancedData.meshes.length) {
-                console.error('Failed to get expanded instanced data');
-                return;
-            }
+            // // Expand to double what we need to reduce future expansions
+            // const newCapacity = Math.max(totalNeededInstances * 2, currentCapacity * 2);
+            // expandInstancedMeshCapacity(modelUrl, newCapacity);
+            // // Re-fetch instancedData after expansion
+            // instancedData = instancedMeshes.current.get(modelUrl);
+            // if (!instancedData || !instancedData.meshes.length) {
+            //     console.error('Failed to get expanded instanced data');
+            //     return;
+            // }
+
+            alert("Maximum Environment Objects Exceeded! Please clear the environment and try again.");
+            return;
         }
 
         // Place an object at each position
         placementPositions.forEach(placementPosition => {
-            // Find next available ID
-            while (existingIds.has(nextInstanceId)) {
-                nextInstanceId++;
-            }
-            const instanceId = nextInstanceId;
-            existingIds.add(instanceId);
-            nextInstanceId++;
-
+            const instanceId = nextInstanceId++;
+            
             // Use the transform stored in lastPreviewTransform.current
             const transform = getPlacementTransform();
             const position = new THREE.Vector3(placementPosition.x, placementPosition.y, placementPosition.z);
@@ -699,7 +684,7 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
             // Record the added object
             const newObject = {
                 modelUrl,
-                instanceId, // Include instanceId in the saved object
+                instanceId,
                 position: { x: position.x, y: position.y, z: position.z },
                 rotation: { x: transform.rotation.x, y: transform.rotation.y, z: transform.rotation.z },
                 scale: { x: transform.scale.x, y: transform.scale.y, z: transform.scale.z },
@@ -765,71 +750,49 @@ const EnvironmentBuilder = ({ scene, previewPositionFromAppJS, currentBlockType,
         setTotalEnvironmentObjects(allObjects.length);
     };
 
-    /// expands the capacity of an instanced mesh, used when rebuilding the environment
-    /// and also when adding an object to the environment
-    const expandInstancedMeshCapacity = (modelUrl, newCapacity) => {
-        const instancedData = instancedMeshes.current.get(modelUrl);
-        if (!instancedData || !instancedData.meshes.length) return;
-
-        // If no specific capacity provided, double the current capacity
-        if (!newCapacity) {
-            const currentCapacity = instancedData.meshes[0]?.instanceMatrix.count || 0;
-            // Find the highest instance ID currently in use
-            const highestInstanceId = Math.max(...Array.from(instancedData.instances.keys()), -1);
-            // Make sure new capacity is at least double what we need
-            newCapacity = Math.max(10, Math.max(currentCapacity * 2, highestInstanceId * 2 + 10));
-        }
-
-        const newMeshes = instancedData.meshes.map(oldMesh => {
-            // Create new mesh with increased capacity
-            const newMesh = new THREE.InstancedMesh(
-                oldMesh.geometry.clone(),
-                oldMesh.material.clone(),
-                newCapacity
-            );
-
-            // Copy properties
-            newMesh.frustumCulled = oldMesh.frustumCulled;
-            newMesh.renderOrder = oldMesh.renderOrder;
-
-            // Set count initially to 0 and only copy valid instances
-            newMesh.count = 0;
-            
-            // Find the highest valid instance ID
-            let maxInstanceId = -1;
-            
-            // Copy only existing instances instead of all slots up to count
-            Array.from(instancedData.instances.keys()).forEach(instanceId => {
-                const matrix = new THREE.Matrix4();
-                oldMesh.getMatrixAt(instanceId, matrix);
-                newMesh.setMatrixAt(instanceId, matrix);
-                maxInstanceId = Math.max(maxInstanceId, instanceId);
-            });
-            
-            // Set count to highest instance ID + 1
-            newMesh.count = maxInstanceId + 1;
-            newMesh.instanceMatrix.needsUpdate = true;
-
-            // Ensure geometry is properly set up
-            newMesh.geometry.computeBoundingBox();
-            newMesh.geometry.computeBoundingSphere();
-
-            // Replace in scene
-            scene.remove(oldMesh);
-            scene.add(newMesh);
-
-            // Clean up old mesh
-            oldMesh.geometry.dispose();
-            oldMesh.material.dispose();
-            oldMesh.dispose();
-
-            return newMesh;
-        });
-
-        // Update the instancedData with new meshes
-        instancedData.meshes = newMeshes;
-        instancedMeshes.current.set(modelUrl, instancedData);
-    };
+    // /// expands the capacity of an instanced mesh, used when rebuilding the environment
+    // /// and also when adding an object to the environment
+    // const expandInstancedMeshCapacity = (modelUrl, newCapacity) => {
+    //     const instancedData = instancedMeshes.current.get(modelUrl);
+    //     if (!instancedData || !instancedData.meshes.length) return;
+    
+    //     const newMeshes = instancedData.meshes.map(oldMesh => {
+    //         const newMesh = new THREE.InstancedMesh(
+    //             oldMesh.geometry.clone(),
+    //             oldMesh.material.clone(),
+    //             newCapacity
+    //         );
+    
+    //         // Copy properties
+    //         newMesh.frustumCulled = oldMesh.frustumCulled;
+    //         newMesh.renderOrder = oldMesh.renderOrder;
+    
+    //         // Copy existing instances explicitly by instanceId
+    //         instancedData.instances.forEach((instanceData, instanceId) => {
+    //             newMesh.setMatrixAt(instanceId, instanceData.matrix);
+    //         });
+    
+    //         // Set count to highest instanceId + 1
+    //         const highestInstanceId = Math.max(...instancedData.instances.keys(), -1);
+    //         newMesh.count = highestInstanceId + 1;
+    //         newMesh.instanceMatrix.needsUpdate = true;
+    
+    //         // Replace in scene
+    //         scene.remove(oldMesh);
+    //         scene.add(newMesh);
+    
+    //         // Clean up old mesh
+    //         oldMesh.geometry.dispose();
+    //         oldMesh.material.dispose();
+    //         oldMesh.dispose();
+    
+    //         return newMesh;
+    //     });
+    
+    //     // Update the instancedData with new meshes
+    //     instancedData.meshes = newMeshes;
+    //     instancedMeshes.current.set(modelUrl, instancedData);
+    // };
 
     /// gets the placement positions, used when adding an object to the environment
     const getPlacementPositions = (centerPos, placementSize) => {

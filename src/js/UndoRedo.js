@@ -232,7 +232,6 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
         DatabaseManager.saveData(STORES.UNDO, 'states', [undoChanges, ...undoStates])
       ]);
 
-      const updatedEnv = await DatabaseManager.getData(STORES.ENVIRONMENT, 'current');
       return currentRedo;
     } catch (error) {
       console.error('Error during redo:', error);
@@ -308,7 +307,7 @@ function UndoRedoManager({ terrainBuilderRef, environmentBuilderRef, children },
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  });
 
   return (
     <>
