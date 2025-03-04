@@ -6,6 +6,8 @@ This repository contains the HYTOPIA World Editor, available for use at https://
 
 Bounties are requests for bug fixes, refactors, or feature additions that meet certain criteria and are submitted as a pull request. The HYTOPIA team will review your PR relative to the bounty you're submitting it for, and if your PR is accepted, the designated bounty for the request will be awarded.
 
+Additionally! If you have found a bug, issue with the world editor, or believe a specific feature would be valuable, you can [submit it via a Github issue here](https://github.com/hytopiagg/world-editor/issues). We will review these submissions and escalate them for bounties if relevant, or reply with why we've chosen to not raise a request for a bounty.
+
 [You can find a list of available bug, feature and refactor bounties that will be paid to the first participant to submit an accepted PR here](https://github.com/hytopiagg/world-editor/labels/BOUNTY)
 
 ## Available Scripts
