@@ -145,8 +145,6 @@ export const exportMapFile = async (terrainBuilderRef) => {
               name: block.name,
               textureUri: block.isMultiTexture ? `blocks/${block.name}` : `blocks/${block.name}.png`,
               isCustom: block.isCustom || false,
-              isMultiTexture: block.isMultiTexture || false,
-              sideTextures: block.sideTextures || {},
             },
           ])
         ).values()
