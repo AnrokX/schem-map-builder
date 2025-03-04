@@ -1,6 +1,12 @@
-# Getting Started with Create React App
+# HYTPIA World Editor
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This repository contains the HYTOPIA World Editor, available for use at https://build.hytopia.com - it is intentionally open sourced to allow community members to actively contribute to its development. We encourage community members to take an active role if interested in forking this repository, and submitting new features & solutions via pull requests. All merged pull requests will deploy to https://build.hytopia.com for the greater community to use.
+
+## Bug, Feature & Request Bounties!
+
+Bounties are requests for bug fixes, refactors, or feature additions that meet certain criteria and are submitted as a pull request. The HYTOPIA team will review your PR relative to the bounty you're submitting it for, and if your PR is accepted, the designated bounty for the request will be awarded.
+
+[You can find a list of available bug, feature and refactor bounties that will be paid to the first participant to submit an accepted PR here](https://github.com/hytopiagg/world-editor/labels/BOUNTY)
 
 ## Available Scripts
 
