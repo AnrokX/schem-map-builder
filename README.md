@@ -1,5 +1,7 @@
 # HYTPIA World Editor
 
+<img width="1496" alt="Screenshot 2025-03-04 at 1 51 53 PM" src="https://github.com/user-attachments/assets/b3ca4a7c-cdfc-41c6-a35c-445735dfe837" />
+
 This repository contains the HYTOPIA World Editor, available for use at https://build.hytopia.com - it is intentionally open sourced to allow community members to actively contribute to its development. We encourage community members to take an active role if interested in forking this repository, and submitting new features & solutions via pull requests. All merged pull requests will deploy to https://build.hytopia.com for the greater community to use.
 
 ## Get Paid To Add Features And Fix Bugs! (OFFICIAL PAID BOUNTY SYSTEM)
