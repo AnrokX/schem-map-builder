@@ -73,21 +73,17 @@ export const processCustomBlock = (block) => {
 			existingBlock.isMultiTexture = block.isMultiTexture || false;
 			existingBlock.sideTextures = block.sideTextures || {};
 
-			/// HOWEVER... If the new texture won't load, then we need to switch it to the error texture
-			try {
-				const img = new Image();
-				img.src = existingBlock.textureUri;
-				if (!img.complete || !img.naturalWidth || !img.naturalHeight) {
-					throw new Error('Image failed to load');
-				}
-			} catch (err) {
-				console.error(`Texture failed to load UPDATED TEXTURE for block ${existingBlock.name}, using error texture`);
+			/// if the texture uri is not a data uri, then we need to set it to the error texture
+			if(!existingBlock.textureUri.startsWith('data:image/'))
+			{
+				console.error(`Texture failed to load for block ${existingBlock.name}, using error texture`);
 				existingBlock.textureUri = "./assets/blocks/error.png";
 				existingBlock.hasMissingTexture = true;
 			}
 		
-			// Save updated blocks to database
-			DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', blockTypesArray)
+			// Save only custom blocks to database
+			const customBlocksOnly = blockTypesArray.filter(b => b.isCustom);
+			DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlocksOnly)
 				.catch(error => console.error("Error saving updated blocks:", error));
 			
 			meshesNeedsRefresh = true;
@@ -100,7 +96,7 @@ export const processCustomBlock = (block) => {
 
 	// Add new block with ID in custom block range (100-199)
 	const newBlock = {
-		id: Math.max(...blockTypesArray.map(b => b.id), 99) + 1, // Start at 100 if no custom blocks exist
+		id: Math.max(...blockTypesArray.filter(b => b.id >= 100).map(b => b.id), 99) + 1, // Start at 100 if no custom blocks exist
 		name: block.name,
 		textureUri: block.textureUri,
 		isCustom: true,
@@ -109,21 +105,13 @@ export const processCustomBlock = (block) => {
 		hasMissingTexture: false
 	};
 
-	/// check new block's texture, and if it's not valid, we switch it to the error texture
-	// Try to load the texture to verify it exists synchronously
-	try {
-		const img = new Image();
-		img.src = newBlock.textureUri;
-		if (!img.complete || !img.naturalWidth || !img.naturalHeight) {
-			throw new Error('Image failed to load');
-		}
-	} catch (err) {
+	/// if the texture uri is not a data uri, then we need to set it to the error texture
+	if(!newBlock.textureUri.startsWith('data:image/'))
+	{
 		console.error(`Texture failed to load for block ${newBlock.name}, using error texture`);
 		newBlock.textureUri = "./assets/blocks/error.png";
 		newBlock.hasMissingTexture = true;
 	}
-
-	console.log("NEW BLOCK TEXTURE:", newBlock.textureUri);
 
 	// Validate ID is in custom block range
 	if (newBlock.id < 100 || newBlock.id >= 200) {
@@ -131,14 +119,12 @@ export const processCustomBlock = (block) => {
 		return;
 	}
 
-	// Add the new blocks to the blockTypesArray
+	// Add the new block to the blockTypesArray
 	blockTypesArray.push(newBlock);
 
-	// create a filtered blockTypesArray that only includes custom blocks
-	const customBlockTypesArray = blockTypesArray.filter(block => block.isCustom);
-
-	// Save only the custom blocks to the database
-	DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlockTypesArray)
+	// Save only custom blocks to database
+	const customBlocksOnly = blockTypesArray.filter(b => b.isCustom);
+	DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlocksOnly)
 		.catch(error => console.error("Error saving custom blocks:", error));
 
 	meshesNeedsRefresh = true;

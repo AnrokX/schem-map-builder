@@ -179,19 +179,36 @@ const BlockToolsSidebar = ({
       /// if there are any image files, process them
       if (imageFiles.length > 0) {
         
-        // Create a promise for each file processing
+        /// create a promise for each inidividual file
         const filePromises = imageFiles.map(file => {
+
+          /// return each individual file as a promise
           return new Promise((resolve) => {
+
+            /// read the file
             const reader = new FileReader();
+
+            /// when the file is loaded, process it
             reader.onload = () => {
+              /// get the block name from the image file
               const blockName = file.name.replace(/\.[^/.]+$/, ""); // Remove file extension
+
+              /// create a block object
               const block = {
                 name: blockName,
                 textureUri: reader.result
               };
+
+              console.log("Processing drag-dropped texture:", block.name);
+              console.log("Which has a texture uri of:", block.textureUri);
+              /// process the block
               processCustomBlock(block);
+
+              /// resolve the promise
               resolve();
             };
+
+            /// read the file
             reader.readAsDataURL(file);
           });
         });
@@ -264,7 +281,7 @@ const BlockToolsSidebar = ({
               <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
                 Default Blocks (ID: 1-99)
               </div>
-              {blockTypes.map((blockType) => (
+              {blockTypes.filter(block => block.id < 100).map((blockType) => (
                 <BlockButton
                   key={blockType.id}
                   blockType={blockType}
@@ -280,7 +297,7 @@ const BlockToolsSidebar = ({
               <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left", marginTop: "10px" }}>
                 Custom Blocks (ID: 100-199)
               </div>
-              {customBlocks.map((blockType) => (
+              {customBlocks.filter(block => block.id >= 100 && block.id < 200).map((blockType) => (
                 <BlockButton
                   key={blockType.id}
                   blockType={blockType}
