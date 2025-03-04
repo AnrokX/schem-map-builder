@@ -11,7 +11,7 @@ Bounties are requests for bug fixes, refactors, or feature additions that meet c
 
 Additionally! If you have found a bug, issue with the world editor, or believe a specific feature would be valuable, you can [submit it via a Github issue here](https://github.com/hytopiagg/world-editor/issues). 
 
-If your issue, request or bug is escalated by our team to become a bounty, you will be included in the official bounty issue, and receive 10% of the total bounty amount after you or another developer submits a pull request we deem acceptable to fulfill the bounty. That means, if a bounty is escalated and has a $500 reward, you as the submitter would receive $50, the developer whos PR is accepted for the bounty would receive $500. Bounty payments are distributed via PayPal.
+If your issue, request or bug is escalated by our team to become a bounty, you will be included in the official bounty issue, and receive 10% of the total bounty amount after you or another developer submits a pull request we deem acceptable to fulfill the bounty. That means, if a bounty is escalated and has a $500 reward, you as the submitter would receive $50, the developer whos PR is accepted for the bounty would receive $500. Bounty payments are distributed by the HYTOPIA team via PayPal.
 
 [You can find a list of available bug, feature and refactor bounties that will be paid to the first participant to submit an accepted PR here](https://github.com/hytopiagg/world-editor/labels/BOUNTY)
 
