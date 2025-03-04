@@ -4,7 +4,7 @@ import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import { DatabaseManager, STORES } from '../DatabaseManager';
 import { environmentModels } from '../EnvironmentBuilder';
-import { blockTypes, addCustomBlocks, getCustomBlocks, removeCustomBlocks, updateCustomBlock, getBlockTypes } from '../TerrainBuilder';
+import { blockTypes, processCustomBlock, getCustomBlocks, removeCustomBlock, getBlockTypes } from '../TerrainBuilder';
 import "../../css/BlockToolsSidebar.css";
 
 const SCALE_MIN = 0.1;
@@ -82,7 +82,7 @@ const BlockToolsSidebar = ({
     
     if (window.confirm(confirmMessage)) {
       // Just pass the ID of the block to remove
-      removeCustomBlocks(blockType.id);
+      removeCustomBlock(blockType.id);
       
       try {
         // Update terrain to replace deleted block instances with error blocks
@@ -172,40 +172,24 @@ const BlockToolsSidebar = ({
     e.currentTarget.classList.remove("drag-over");
     const files = Array.from(e.dataTransfer.files);
     
+    /// process blocks first
     if (activeTab === "blocks") {
       const imageFiles = files.filter(file => file.type.startsWith("image/"));
       
+      /// if there are any image files, process them
       if (imageFiles.length > 0) {
-        const allBlocks = getBlockTypes();
         
         // Create a promise for each file processing
         const filePromises = imageFiles.map(file => {
           return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = () => {
-              const fileName = file.name.replace(/\.[^/.]+$/, "");
-              
-              const existingBlock = allBlocks.find(
-                block => block.name.toLowerCase() === fileName.toLowerCase()
-              );
-              
-              if (existingBlock) {
-                updateCustomBlock({
-                  name: existingBlock.name,
-                  textureUri: reader.result,
-                  hasMissingTexture: false,
-                });
-              } else {
-                addCustomBlocks([{
-                  name: fileName,
-                  textureUri: reader.result,
-                  isCustom: true,
-                  isEnvironment: false,
-                  isMultiTexture: false,
-                  hasMissingTexture: false,
-                  sideTextures: {}
-                }]);
-              }
+              const blockName = file.name.replace(/\.[^/.]+$/, ""); // Remove file extension
+              const block = {
+                name: blockName,
+                textureUri: reader.result
+              };
+              processCustomBlock(block);
               resolve();
             };
             reader.readAsDataURL(file);
@@ -215,7 +199,9 @@ const BlockToolsSidebar = ({
         // Wait for all files to be processed
         await Promise.all(filePromises);
       }
-    } else if (activeTab === "environment") {
+    }
+    /// process environment objects next
+    else if (activeTab === "environment") {
       const gltfFiles = files.filter(file => file.name.endsWith('.gltf'));
 
       if (gltfFiles.length > 0) {

@@ -54,123 +54,101 @@ let blockTypesArray = (() => {
 	}));
 })();
 
-// Add function to update blockTypes with custom blocks
-export const addCustomBlocks = (customBlocks) => {
-	if (!customBlocks.length) {
-		console.warn('No valid custom blocks provided');
+//// function to handle the adding/updating of a custom block
+export const processCustomBlock = (block) => {
+	// Validate block data
+	if (!block || !block.name || !block.textureUri) {
+		console.error("Invalid block data:", block);
 		return;
 	}
 
-	const currentCustomBlocks = getCustomBlocks();
-	let newCustomBlocks = [...currentCustomBlocks];
-	let nextCustomId = currentCustomBlocks.length + 100;
-
-	const checkTextureExists = (textureUri) => {
-		return new Promise((resolve) => {
-			const img = new Image();
-			img.onload = () => resolve(true);
-			img.onerror = () => resolve(false);
-			img.src = textureUri;
-		});
-	};
-
-	// Convert to async function to handle texture checks
-	const processBlocks = async () => {
-		for (const inputBlock of customBlocks) {
-			// Skip blocks with IDs < 100
-			if (inputBlock.id && inputBlock.id < 100) {
-				console.warn(`Skipping block with ID ${inputBlock.id} - cannot add blocks with IDs < 100`);
-				continue;
-			}
-
-			// Check if block with same name exists
-			const existingBlockIndex = newCustomBlocks.findIndex(b => b.name === inputBlock.name);
-			const existingDefaultBlock = blockTypesArray.find(b => b.name === inputBlock.name && b.id < 100);
-
-			// Skip if matching name exists in default blocks
-			if (existingDefaultBlock) {
-				console.warn(`Skipping block "${inputBlock.name}" - a default block with this name already exists`);
-				continue;
-			}
-
-			// Check if texture exists
-			const textureExists = await checkTextureExists(inputBlock.textureUri);
-			const finalTextureUri = textureExists ? inputBlock.textureUri : './assets/blocks/error.png';
-
-			if (!textureExists) {
-				console.warn(`Texture not found for block "${inputBlock.name}", using error texture`);
-			}
-
-			if (existingBlockIndex !== -1) {
-				// Update existing custom block
-				newCustomBlocks[existingBlockIndex] = {
-					...newCustomBlocks[existingBlockIndex],
-					textureUri: finalTextureUri,
-					hasMissingTexture: !textureExists
-				};
-			} else {
-				// Add new block
-				newCustomBlocks.push({
-					id: nextCustomId++,
-					name: inputBlock.name,
-					textureUri: finalTextureUri,
-					isCustom: true,
-					isEnvironment: false,
-					isMultiTexture: false,
-					hasMissingTexture: !textureExists,
-					sideTextures: {}
-				});
-			}
-		}
-
-		// Update blockTypesArray with new custom blocks
-		blockTypesArray = [
-			...blockTypesArray.filter(b => b.id < 100), // Keep default blocks
-			...newCustomBlocks // Add/update custom blocks
-		];
-
-		// Save to database
-		await DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', newCustomBlocks)
-			.catch(error => console.error("Error saving custom blocks:", error));
-
-		refreshBlockTools();
-		meshesNeedsRefresh = true;
-	};
-
-	// Execute the async function
-	processBlocks().catch(error => console.error("Error processing custom blocks:", error));
-};
-
-export const updateCustomBlock = (block) => {
-	// Find existing block with matching name
+	// Find existing block with same name
 	const existingBlock = blockTypesArray.find(b => b.name === block.name);
 
 	if (existingBlock) {
-		// Update existing block's properties
-		existingBlock.textureUri = block.textureUri;
-		existingBlock.hasMissingTexture = false;
-		existingBlock.isCustom = true;
-		existingBlock.isEnvironment = false;
-		existingBlock.isMultiTexture = false;
+		// If block exists and has missing texture, update it
+		if (existingBlock.hasMissingTexture) {
+			existingBlock.textureUri = block.textureUri;
+			existingBlock.hasMissingTexture = false;
+			existingBlock.isMultiTexture = block.isMultiTexture || false;
+			existingBlock.sideTextures = block.sideTextures || {};
 
-		// Get only the custom blocks (ID >= 100)
-		const customBlocks = getCustomBlocks();
-
-		// Save only custom blocks to database
-		DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlocks)
-			.catch(error => console.error("Error saving custom blocks:", error));
-
-		refreshBlockTools();
-		meshesNeedsRefresh = true;
-	} else {
-		console.warn(`Block with name ${block.name} not found in blockTypesArray`);
+			/// HOWEVER... If the new texture won't load, then we need to switch it to the error texture
+			try {
+				const img = new Image();
+				img.src = existingBlock.textureUri;
+				if (!img.complete || !img.naturalWidth || !img.naturalHeight) {
+					throw new Error('Image failed to load');
+				}
+			} catch (err) {
+				console.error(`Texture failed to load UPDATED TEXTURE for block ${existingBlock.name}, using error texture`);
+				existingBlock.textureUri = "./assets/blocks/error.png";
+				existingBlock.hasMissingTexture = true;
+			}
+		
+			// Save updated blocks to database
+			DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', blockTypesArray)
+				.catch(error => console.error("Error saving updated blocks:", error));
+			
+			meshesNeedsRefresh = true;
+			console.log("Updated missing texture for block:", block.name);
+		} else {
+			console.log("Block already exists:", block.name);
+		}
+		return;
 	}
+
+	// Add new block with ID in custom block range (100-199)
+	const newBlock = {
+		id: Math.max(...blockTypesArray.map(b => b.id), 99) + 1, // Start at 100 if no custom blocks exist
+		name: block.name,
+		textureUri: block.textureUri,
+		isCustom: true,
+		isMultiTexture: block.isMultiTexture || false,
+		sideTextures: block.sideTextures || {},
+		hasMissingTexture: false
+	};
+
+	/// check new block's texture, and if it's not valid, we switch it to the error texture
+	// Try to load the texture to verify it exists synchronously
+	try {
+		const img = new Image();
+		img.src = newBlock.textureUri;
+		if (!img.complete || !img.naturalWidth || !img.naturalHeight) {
+			throw new Error('Image failed to load');
+		}
+	} catch (err) {
+		console.error(`Texture failed to load for block ${newBlock.name}, using error texture`);
+		newBlock.textureUri = "./assets/blocks/error.png";
+		newBlock.hasMissingTexture = true;
+	}
+
+	console.log("NEW BLOCK TEXTURE:", newBlock.textureUri);
+
+	// Validate ID is in custom block range
+	if (newBlock.id < 100 || newBlock.id >= 200) {
+		console.error("Invalid custom block ID:", newBlock.id);
+		return;
+	}
+
+	// Add the new blocks to the blockTypesArray
+	blockTypesArray.push(newBlock);
+
+	// create a filtered blockTypesArray that only includes custom blocks
+	const customBlockTypesArray = blockTypesArray.filter(block => block.isCustom);
+
+	// Save only the custom blocks to the database
+	DatabaseManager.saveData(STORES.CUSTOM_BLOCKS, 'blocks', customBlockTypesArray)
+		.catch(error => console.error("Error saving custom blocks:", error));
+
+	meshesNeedsRefresh = true;
+	refreshBlockTools();
 };
 
 // Add function to remove custom blocks
-export const removeCustomBlocks = (blockIdsToRemove) => {
+export const removeCustomBlock = (blockIdToRemove) => {
 	// Convert input to array if it's not already
-	const idsToRemove = Array.isArray(blockIdsToRemove) ? blockIdsToRemove : [blockIdsToRemove];
+	const idsToRemove = Array.isArray(blockIdToRemove) ? blockIdToRemove : [blockIdToRemove];
 	
 	// Validate that all IDs are in the custom block range (100-199)
 	const invalidIds = idsToRemove.filter(id => id < 100 || id >= 200);
@@ -196,7 +174,6 @@ export const getBlockTypes = () => blockTypesArray;
 
 export const getCustomBlocks = () => {
 	const customBlocks = blockTypesArray.filter(block => block.id >= 100);
-	console.log("custom blocks:", customBlocks);
 	return customBlocks;
 };
 
@@ -837,7 +814,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	const updateTerrainFromToolBar = (terrainData) => {
 		terrainRef.current = terrainData;
-		console.log("Calling Build Update Terrain from updateTerrainFromToolBar");
 		buildUpdateTerrain();
 	};
 
@@ -889,7 +865,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			.then(() => {
 				// Update local terrain state
 				terrainRef.current = {};
-				console.log("Calling Build Update Terrain from clearMap");
 				buildUpdateTerrain();
 				totalBlocksRef.current = 0;
 			})
@@ -929,7 +904,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	useEffect(() => {
 		axisLockEnabledRef.current = axisLockEnabled;
-		console.log("Axis lock status:", axisLockEnabled);
 	}, [axisLockEnabled]);
 
 	// effect to update grid size
@@ -993,10 +967,13 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			DatabaseManager.getData(STORES.CUSTOM_BLOCKS, "blocks")
 				.then((customBlocksData) => {
 					if (customBlocksData && customBlocksData.length > 0) {
-						console.log("Loading custom blocks from IndexedDB:", customBlocksData.length);
-						// Update block types with custom blocks
-						addCustomBlocks(customBlocksData);
 						
+						/// loop through all the custom blocks and process them
+						for(const block of customBlocksData)
+						{
+							processCustomBlock(block);
+						}
+
 						// Initialize meshes for custom blocks
 						const initialInstanceCount = BLOCK_INSTANCED_MESH_CAPACITY; // Match the initial capacity used elsewhere
 
@@ -1025,7 +1002,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					}
 					
 					meshesInitializedRef.current = true;
-					console.log("Meshes INITIALIZED LETS GOoooo! Status: ", meshesInitializedRef.current);
 
 					// Load terrain from IndexedDB
 					return DatabaseManager.getData(STORES.TERRAIN, "current");
@@ -1041,7 +1017,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 						console.log("No terrain found in IndexedDB");
 						// Initialize with empty terrain
 						terrainRef.current = {};
-						console.log("Calling Build Update Terrain from Initialization useEffect (empty terrain)");
 						buildUpdateTerrain();
 						totalBlocksRef.current = 0;
 					}
@@ -1053,7 +1028,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 					if (mounted) {
 						meshesInitializedRef.current = true;
 						terrainRef.current = {};
-						console.log("Calling Build Update Terrain from Initialization useEffect (error)");
 						buildUpdateTerrain();
 						totalBlocksRef.current = 0;
 						setPageIsLoaded(true);
@@ -1113,7 +1087,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 
 	/// build update terrain when the terrain state changes
 	useEffect(() => {
-		console.log("Calling Build Update Terrain from useEffect (terrain state changed)");
 		buildUpdateTerrain();
 	}, [terrainRef.current]);
 
@@ -1142,7 +1115,6 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 				} else {
 					terrainRef.current = {};
 				}
-				console.log("Calling Build Update Terrain from refreshTerrainFromDB");
 				buildUpdateTerrain();
 			} catch (err) {
 				console.error("Error reloading terrain from DB:", err);

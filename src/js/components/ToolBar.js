@@ -266,15 +266,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		setShowTerrainModal(false);
 	};
 
-	const handleExport = () => {
-		try {
-			exportFullAssetPack(terrainBuilderRef);
-		} catch (error) {
-			console.error("Error exporting map:", error);
-			alert("Error exporting map. Please try again.");
-		}
-	};
-
 	const handleExportMap = () => {
 		try {
 			exportMapFile(terrainBuilderRef);
@@ -323,13 +314,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 	};
 
-	const onAssetPackSelected = (event) => {
-		console.log("Asset pack selected:", event.target.files[0]);
-		if (event.target.files && event.target.files[0]) {
-			importAssetPack(event.target.files[0], environmentBuilderRef);
-		}
-	};
-
 	return (
 		<>
 			<div className="controls-container">
@@ -360,7 +344,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 									id="assetPackInput"
 									type="file"
 									accept=".zip"
-									onChange={onAssetPackSelected}
 									style={{ display: "none" }}
 								/>
 							</Tooltip>
@@ -374,7 +357,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 						{!DISABLE_ASSET_PACK_IMPORT_EXPORT && (
 							<Tooltip text="Export map and assets as a complete package">
 								<button
-									onClick={() => handleExport()}
 									className="control-button import-export-button">
 									Asset Pack
 								</button>
