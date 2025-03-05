@@ -8,7 +8,7 @@ export const MIN_UNDO_STATES = 30;
 export const UNDO_THRESHOLD = 60;
 
 // Terrain builder palcement/movement constants
-export const THRESHOLD_FOR_PLACING = 0.5;
+export const THRESHOLD_FOR_PLACING = 0.9;
 
 /// instanced mesh constants
 export const ENVIRONMENT_INSTANCED_MESH_CAPACITY = 50000;

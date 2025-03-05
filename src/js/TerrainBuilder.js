@@ -169,7 +169,7 @@ export const blockTypes = blockTypesArray;
 function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType, undoRedoManager, mode, setDebugInfo, axisLockEnabled, gridSize, cameraReset, cameraAngle, placementSize, setPageIsLoaded, customBlocks, environmentBuilderRef}, ref) {
 
 	// Scene setup
-	const { camera, scene, raycaster, mouse, gl } = useThree();
+	const { camera, scene, raycaster, pointer, gl } = useThree();
 	const meshesInitializedRef = useRef(false);
 	const placementStartState = useRef(null);
 	const instancedMeshRef = useRef({});
@@ -491,41 +491,75 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	/// Raycast and Grid Intersection Functions ///
 	/// Raycast and Grid Intersection Functions ///
 
-	const getRaycastIntersection = (raycastOrigin) => {
-		const raycastIntersects = raycastOrigin.intersectObjects(scene.children, false);
-
-		if (!raycastIntersects.length) return null;
-
-		// Filter intersections to only consider active instances
-		const rayHitBlock = raycastIntersects.find(intersect => {
-			if (intersect.object.isInstancedMesh) {
-				return intersect.instanceId !== undefined && intersect.instanceId < intersect.object.count;
-			}
-			return false;
-		});
-
-		const rayHitShadowPlane = raycastIntersects.find(intersect => intersect.object === shadowPlaneRef.current);
-
-		if (rayHitBlock) {
-			return {
-				point: rayHitBlock.point,
-				normal: rayHitBlock.face.normal,
-			};
-		}
-
-		if (rayHitShadowPlane) {
-			return {
-				point: new THREE.Vector3(
-					rayHitShadowPlane.point.x,
-					0,
-					rayHitShadowPlane.point.z
-				),
-				normal: rayHitShadowPlane.face.normal,
-			};
-		}
-
-		return null;
-	};
+	const getRaycastIntersection = () => {
+        // Use the raw pointer coordinates directly from THREE.js
+        const normalizedMouse = pointer.clone();
+        // Setup raycaster with the normalized coordinates
+        raycaster.setFromCamera(normalizedMouse, camera);
+        // Create a temporary array to store all intersections
+        let allIntersections = [];
+        // Manually check each block in the terrain
+        Object.entries(terrainRef.current).forEach(([posKey, blockId]) => {
+            // Skip recently placed blocks during placement
+            if (isPlacingRef.current && recentlyPlacedBlocksRef.current.has(posKey)) {
+                return;
+            }
+            
+            const [x, y, z] = posKey.split(',').map(Number);
+            // Create a temporary box for raycasting
+            const tempBox = new THREE.Box3(
+                new THREE.Vector3(x - 0.5, y - 0.5, z - 0.5),
+                new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5)
+            );
+            // Check if ray intersects this box
+            const ray = raycaster.ray.clone();
+            const intersection = ray.intersectBox(tempBox, new THREE.Vector3());
+            if (intersection) {
+                // Calculate which face was hit
+                const normal = new THREE.Vector3();
+                const epsilon = 0.001;
+                // Determine which face was hit based on intersection point
+                if (Math.abs(intersection.x - (x - 0.5)) < epsilon) normal.set(-1, 0, 0);
+                else if (Math.abs(intersection.x - (x + 0.5)) < epsilon) normal.set(1, 0, 0);
+                else if (Math.abs(intersection.y - (y - 0.5)) < epsilon) normal.set(0, -1, 0);
+                else if (Math.abs(intersection.y - (y + 0.5)) < epsilon) normal.set(0, 1, 0);
+                else if (Math.abs(intersection.z - (z - 0.5)) < epsilon) normal.set(0, 0, -1);
+                else if (Math.abs(intersection.z - (z + 0.5)) < epsilon) normal.set(0, 0, 1);
+                allIntersections.push({
+                    distance: ray.origin.distanceTo(intersection),
+                    point: intersection,
+                    normal: normal,
+                    object: { isBlock: true, position: new THREE.Vector3(x, y, z) }
+                });
+            }
+        });
+        // Also check for intersections with the shadow plane and grid
+        const planeIntersects = raycaster.intersectObjects([shadowPlaneRef.current, gridRef.current])
+            .filter(intersect => !intersect.object.name?.includes("preview"));
+        // Combine all intersections and sort by distance
+        allIntersections = [...allIntersections, ...planeIntersects]
+            .sort((a, b) => a.distance - b.distance);
+        // If no intersections, return null
+        if (!allIntersections.length) return null;
+        // Get the first (closest) intersection
+        const firstHit = allIntersections[0];
+        // If the intersection is with the shadow plane or grid
+        if (firstHit.object === shadowPlaneRef.current || firstHit.object === gridRef.current) {
+            return {
+                point: new THREE.Vector3(
+                    firstHit.point.x,
+                    0,
+                    firstHit.point.z
+                ),
+                normal: new THREE.Vector3(0, 1, 0), // Always use up normal for shadow plane
+            };
+        }
+        // For block intersections
+        return {
+            point: firstHit.point,
+            normal: firstHit.normal,
+        };
+    };
 
 	// Throttle mouse move updates
 	const updatePreviewPosition = () => {
@@ -544,18 +578,10 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 		const rect = canvasRectRef.current;
 
 		// Reuse vectors for normalized mouse position
-		normalizedMouseRef.current.x = ((((mouse.x + 1) / 2) * rect.width - rect.width / 2) / rect.width) * 2;
-		normalizedMouseRef.current.y = ((((mouse.y + 1) / 2) * rect.height - rect.height / 2) / rect.height) * 2;
+		normalizedMouseRef.current.x = ((((pointer.x + 1) / 2) * rect.width - rect.width / 2) / rect.width) * 2;
+		normalizedMouseRef.current.y = ((((pointer.y + 1) / 2) * rect.height - rect.height / 2) / rect.height) * 2;
 
-		// Update raycaster
-		raycaster.ray.origin.copy(camera.position);
-		raycaster.ray.direction
-			.set(normalizedMouseRef.current.x, normalizedMouseRef.current.y, 0.5)
-			.unproject(camera)
-			.sub(camera.position)
-			.normalize();
-
-		const intersection = getRaycastIntersection(raycaster);
+		const intersection = getRaycastIntersection();
 		if (!intersection) return;
 
 		if (!currentBlockTypeRef?.current?.isEnvironment) {

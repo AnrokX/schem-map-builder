@@ -116,7 +116,7 @@ function App() {
         onPlacementSettingsChange={setPlacementSettings}
       />
 
-      <div class="vignette-gradient"></div>
+      <div className="vignette-gradient"></div>
 
       <Canvas shadows className="canvas-container">
         <TerrainBuilder
