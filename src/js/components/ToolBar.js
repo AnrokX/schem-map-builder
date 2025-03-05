@@ -314,6 +314,14 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 	};
 
+	// Add a handler for modal overlay clicks
+	const handleModalOverlayClick = (e, setModalVisibility) => {
+		// Only close if the click was directly on the overlay (not on the modal content)
+		if (e.target.className === 'modal-overlay') {
+			setModalVisibility(false);
+		}
+	};
+
 	return (
 		<>
 			<div className="controls-container">
@@ -502,8 +510,11 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			</div>
 
 			{showDimensionsModal && (
-				<div className="modal-overlay">
+				<div className="modal-overlay" onClick={(e) => handleModalOverlayClick(e, setShowDimensionsModal)}>
 					<div className="modal-content">
+						<div className="modal-image-container">
+							<img src="./assets/ui/images/generate_cube.png" alt="Cube Example" className="modal-image" />
+						</div>
 						<h3 className="modal-title">Generate Area of Blocks</h3>
 						<p className="modal-description">Generate a large area of blocks. Enter the dimensions to define the size of the shape. The currently selected block will be used.</p>
 						<div className="modal-input">
@@ -567,7 +578,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			)}
 
 			{showGridSizeModal && (
-				<div className="modal-overlay">
+				<div className="modal-overlay" onClick={(e) => handleModalOverlayClick(e, setShowGridSizeModal)}>
 					<div className="modal-content">
 						<h3 className="modal-title">Change Grid Size</h3>
 						<p className="modal-description">Adjust the size of the building grid. This affects the visible grid and the area where you can place blocks.</p>
@@ -598,8 +609,11 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			)}
 
 			{showBorderModal && (
-				<div className="modal-overlay">
+				<div className="modal-overlay" onClick={(e) => handleModalOverlayClick(e, setShowBorderModal)}>
 					<div className="modal-content">
+						<div className="modal-image-container">
+							<img src="ui/images/border_example.png" alt="Border Example" className="modal-image" />
+						</div>
 						<h3 className="modal-title">Generate Wall Blocks (Boarder)</h3>
 						<p className="modal-description">Generate a boarder of blocks. Enter the dimensions to define the size of the shape. The currently selected block will be used.</p>
 						<div className="modal-input">
@@ -663,8 +677,11 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			)}
 
 			{showTerrainModal && (
-				<div className="modal-overlay">
+				<div className="modal-overlay" onClick={(e) => handleModalOverlayClick(e, setShowTerrainModal)}>
 					<div className="modal-content">
+						<div className="modal-image-container">
+							<img src="./assets/ui/images/generate_terrain.png" alt="Terrain Example" className="modal-image" />
+						</div>
 						<h3 className="modal-title">Generate Terrain</h3>
 						<p className="modal-description">Generate natural-looking terrain with mountains and valleys. Adjust the slider from roughest terrain (left) to smoothest terrain (right).</p>
 						<div className="modal-input">
@@ -710,9 +727,9 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 							/>
 						</div>
 						<div className="modal-input">
-							<label style={{ marginBottom: "5px" }}>Terrain Style: </label>
+							<label style={{ marginBottom: "5px" }}>Roughness: </label>
 							<div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-								<span>Roughest</span>
+								<span>Smooth</span>
 								<input
 									type="range"
 									value={terrainSettings.roughness}
@@ -722,10 +739,10 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 											roughness: parseInt(e.target.value),
 										})
 									}
-									min="70"
+									min="20"
 									max="100"
 								/>
-								<span>Smoothest</span>
+								<span>Rough</span>
 							</div>
 						</div>
 						<div className="checkbox-input-wrapper">

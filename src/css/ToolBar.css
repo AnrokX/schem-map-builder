@@ -104,7 +104,7 @@ button {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(13, 13, 13, 0.7);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -113,9 +113,10 @@ button {
 
 .modal-content {
   border-radius: 10px;
-  width: 300px;
+  width: 400px;
   padding: 30px;
   background-color: rgba(13, 13, 13, 0.7);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
 .modal-title {
@@ -127,44 +128,102 @@ button {
   text-align: center;
   width: 100%;
   font-size: 14px;
-  color: #444444;
+  color: #adadad;
+  text-align: left;
 }
 
 .modal-input {
-  margin-bottom: 10px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .modal-input label {
-  margin-bottom: 5px;
+  flex: 0 0 40%;
+  text-align: left;
 }
 
 .modal-input input {
-  width: 70%;
-  padding: 5px;
-  margin-top: 5px;
-  justify-self: center;
-  box-sizing: border-box;
+  flex: 0 0 55%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(241, 241, 241, 0.15);
+  background-color: rgba(30, 30, 30, 0.7);
+  color: #fff;
 }
 
-.modal-input input[type="range"] {
-  width: 150px;
-}
-
-.modal-input span {
-  min-width: 40px;
-  display: inline-block;
-}
-
-.modal-buttons {
+/* Improve the range slider container */
+.modal-input div {
+  flex: 0 0 55%;
   display: flex;
+  align-items: left;
+  justify-content: left;
+  width: 100%;
+}
+
+/* Make the slider labels smaller and more compact */
+.modal-input div span {
+  font-size: 11px;
+  color: #adadad;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* Adjust the range slider itself */
+.modal-input input[type="range"] {
+  flex: 1;
+  width: 40px;
+  margin: 0 5px;
+  height: 5px;
+  -webkit-appearance: none;
+  background: rgba(241, 241, 241, 0.3);
+  border-radius: 5px;
+  outline: none;
+}
+
+/* Style the range slider thumb */
+.modal-input input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.modal-input input[type="range"]::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: none;
+}
+
+/* Checkbox wrapper needs special handling */
+.checkbox-input-wrapper {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  margin-top: 20px;
-  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.checkbox-input-wrapper label {
+  flex: 0 0 70%;
+}
+
+.checkbox-input-wrapper input[type="checkbox"] {
+  flex: 0 0 20%;
+  height: 18px;
+  width: 18px;
 }
 
 .modal-buttons button {
-  font-size: 14px;
+  width: 40%;
+  border: 1px solid rgba(241, 241, 241, 0.15);
+  margin:10px;
+  margin-top: 20px;
 }
 
 /* Helper Classes & Controls */
@@ -232,4 +291,20 @@ button {
 .control-button.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Modal image styles */
+.modal-image-container {
+  width: 100%;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.modal-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  object-fit: cover;
 }
