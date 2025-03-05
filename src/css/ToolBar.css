@@ -10,18 +10,20 @@
   position: absolute;
   bottom: 0;
   left: 0;
+  padding-bottom: 20px;
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  padding: 5px;
   background-color: transparent;
-  box-sizing: border-box;
 }
 
 .control-label {
-  font-size: 16px;
+  position: absolute;
+  font-size: 12px;
+  font-weight: bold;
   text-align: center;
-  margin-top: 5px;
+  bottom:110%;
+  text-shadow: 0 0 2px #000000;
 }
 
 .control-group {
@@ -29,89 +31,56 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 10px;
-  border: 2px solid #ccc;
-  border-radius: 10px;
-  background-color: rgba(255, 255, 255, 0.3);
-  overflow-y: auto;
-  margin: 0 5px;
-  margin-bottom: 5px;
-  min-width: 90px;
-  height: 58px;
+  padding: 8px;
+  background-color: rgba(13, 13, 13, 0.7);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-left: 1px solid rgba(241, 241, 241, 0.15);
+  padding-left: 15px;
+  padding-right: 15px;
 }
 
+.contol-group-start{
+  border-radius: 12px 0 0 12px;
+  padding-left: 8px;
+}
+
+.contol-group-end{
+  border-radius: 0 12px 12px 0;
+  padding-right: 8px;
+}
 .control-button-wrapper {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   width: 100%;
-}
-
-/* Dividers */
-.control-divider {
-  width: 100%;
-  height: 1px;
-  background-color: rgba(255, 255, 255, 0.3);
-  margin: 5px 0;
 }
 
 .control-divider-vertical {
   width: 1px;
-  height: 30px;
-  background-color: rgba(255, 255, 255, 0.3);
+  height: 20px;
+  background-color: rgba(241, 241, 241, 0.15);
   margin: 0 8px;
 }
 
 /* Button Styles */
 .control-button {
   margin: 0 2px;
-  padding: 5px;
-  background: white;
-  border: 1px solid #ccc;
-  border-radius: 5px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(241, 241, 241, 0.15);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 33px;
+  height: 33px;
 }
 
 button {
-  background: linear-gradient(to bottom, #e6f3ff, #b3d9ff);
-  border: none;
   border-radius: 5px;
   padding: 8px 15px;
-  cursor: pointer;
-  color: #333;
-  font-weight: bold;
-}
-
-button:hover {
-  background: linear-gradient(to bottom, #d1e8ff, #99ccff);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-button:active {
-  background: linear-gradient(to bottom, #b3d9ff, #e6f3ff);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-button.active {
-  background: linear-gradient(to bottom, #d1e8ff, #99ccff);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  border: 2px solid #0084ff;
-}
-
-/* Special Button Styles */
-.control-button.clear-map {
-  background: linear-gradient(to bottom, #ff3434, #ff5c5c);
-  color: white;
-}
-
-.control-button.clear-map:hover {
-  background: linear-gradient(to bottom, #ff5c5c, #ff3434);
 }
 
 .import-export-button {
@@ -135,7 +104,7 @@ button.active {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.5);
+  background-color: rgba(13, 13, 13, 0.7);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -146,7 +115,7 @@ button.active {
   border-radius: 10px;
   width: 300px;
   padding: 30px;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: rgba(13, 13, 13, 0.7);
 }
 
 .modal-title {
@@ -195,23 +164,7 @@ button.active {
 }
 
 .modal-buttons button {
-  background: linear-gradient(to bottom, #34a7ff, #5cb8ff);
-  color: white;
-  font-weight: bold;
   font-size: 14px;
-  text-transform: uppercase;
-}
-
-.modal-buttons button:hover,
-.menu-button:hover,
-.import-export-button:hover {
-  background: linear-gradient(to bottom, #5cb8ff, #34a7ff);
-}
-
-.modal-buttons button:active,
-.menu-button:active,
-.import-export-button:active {
-  background: linear-gradient(to bottom, #2196f3, #34a7ff);
 }
 
 /* Helper Classes & Controls */
@@ -264,9 +217,9 @@ button.active {
   z-index: 1000;
   display: flex;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(13, 13, 13, 0.7);
   padding: 10px 5px;
-  border-radius: 10px;
+  border-radius: 5px;
 }
 
 .vertical-slider {

@@ -8,7 +8,7 @@ import {
   FaDatabase,
 } from "react-icons/fa";
 import Tooltip from "./js/components/Tooltip";
-import hytopiaLogo from "./images/Hytopia_Tiny.png";
+import hytopiaLogo from "./images/hytopia_logo_white.png";
 import "./css/App.css";
 import {toggleMute, isMuted} from "./js/Sound";
 import DebugInfo from './js/components/DebugInfo';
@@ -100,9 +100,9 @@ function App() {
       {!pageIsLoaded && <LoadingScreen />}
 
       {/* Hytopia Logo */}
-      <div className="hytopia-logo">
-        <img src={hytopiaLogo} alt="Hytopia Logo" className="hytopia-logo" />
-        <p style={{ marginTop: '50px', fontSize: '12px', color: 'gray'}}>World Editor Version {version}</p>
+      <div className="hytopia-logo-wrapper">
+        <img src={hytopiaLogo}/>
+        <p className="hytopia-version-text">World Editor Version {version}</p>
       </div>
 
       <QuickTips />
@@ -115,6 +115,8 @@ function App() {
         environmentBuilder={environmentBuilderRef.current}
         onPlacementSettingsChange={setPlacementSettings}
       />
+
+      <div class="vignette-gradient"></div>
 
       <Canvas shadows className="canvas-container">
         <TerrainBuilder

@@ -13,59 +13,95 @@
 }
 
 .block-tools-sidebar {
-  position: relative;
+  position: absolute;
   height: 100%;
-  width: 365px;
-  background-color: rgba(255, 255, 255, 0.2);
-  padding: 10px;
-  border-radius: 10px;
-  border: 2px solid #ffffff6d;
-  margin-left: 10px;
-  left: 0;
+  width: 313px;
+  background-color: rgba(13, 13, 13, 0.8);
+  padding: 15px;
+  border-radius: 12px;
+  border: none;
   display: flex;
   flex-direction: column;
   min-height: 400px;
-  max-height: 100vh; /* Ensure it doesn't overflow viewport */
-  overflow: hidden; /* Prevent sidebar from scrolling */
+  max-height: 70vh;
+  overflow: hidden;
   margin-top: 140px;
   margin-bottom: 140px;
-  pointer-events:all;
+  pointer-events: all;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  left: 20px;
 }
 
 /* Block Buttons Grid */
 .block-buttons-grid {
-  width: 350px;
-  border-radius: 10px;
-  border: 2px solid #ffffff;
-  background-color: rgba(255, 255, 255, 0.363);
-  padding: 5px;
+  width: 285px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(241, 241, 241, 0.15);
+  padding: 13px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  overflow-y: auto; /* Change to auto to show scrollbar only when needed */
+  gap: 6px;
+  scroll-padding: 0px;
+  overflow-y: auto;
   overflow-x: hidden;
   align-content: flex-start;
   flex: 1;
 }
 
+/* Custom Scrollbar Styles */
+.block-buttons-grid::-webkit-scrollbar {
+  width: 10px;
+}
+
+.block-buttons-grid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+}
+
+.block-buttons-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 5px;
+  transition: background 0.2s ease;
+}
+
+.block-buttons-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.block-tools-section-label {
+  font-size: 12px;
+  width: 100%;
+  text-align: left;
+}
+
 /* Block Button Styles */
 .block-button {
-  width: 52px;
-  height: 52px;
+  width: 50px;
+  height: 50px;
   text-align: center;
-  border-radius: 5px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-  padding: 0px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.468);
+  padding: 2px;
   cursor: grab;
   -webkit-user-drag: element;
   user-select: none;
   position: relative;
   flex-shrink: 0;
-  cursor:pointer;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.block-button:hover {
+  transform: scale(1.05);
+}
+
+.block-button.selected {
+  transform: scale(1.05);
 }
 
 .block-preview {
@@ -97,31 +133,61 @@
   display: block;
 }
 
-.block-button:active,
-.block-button.dragging {
-  cursor: grabbing;
-  opacity: 1 !important;
-  background-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
 /* Tab Buttons */
 .tab-button-wrapper {
   width: 100%;
+  height: 45px;
   display: flex;
   justify-content: space-between;
   position: relative;
   bottom: 0px;
+  margin-bottom: 8px;
 }
 
-.tab-button {
+.tab-button-left {
+  height: 100%;
   width: 50%;
-  margin: 5px;
-  margin-top: 10px;
   text-align: center;
   display: flex;
   justify-content: center;
   align-items: center;
+  border-radius: 12px 0 0 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-right-color: rgba(255, 255, 255, 0);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-button-right {
+  height: 100%;
+  width: 50%;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 0 12px 12px 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-left-color: rgba(255, 255, 255, 0);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-button-left:hover {
+  background-color: rgba(80, 80, 80, 0.5);
+}
+
+.tab-button-left.active {
+  background-color: rgba(241, 241, 241, 0.2);
+}
+
+.tab-button-right:hover {
+  background-color: rgba(80, 80, 80, 0.5);
+}
+
+.tab-button-right.active {
+  background-color: rgba(241, 241, 241, 0.2);
 }
 
 /* Environment Button Styles */
@@ -179,25 +245,24 @@
 .texture-drop-zone {
   position: relative;
   z-index: 10;
-  height: 85px;
+  height: 100px;
   margin-top: 12px;
-  margin-bottom: 5px;
-  border: 2px dashed #666;
-  border-radius: 8px;
-  background-color: rgba(255, 255, 255, 0.1);
+  border: 1.5px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background-color: rgba(0, 0, 0, 0.2);
   transition: all 0.3s ease;
   cursor: pointer;
   text-align: center;
 }
 
 .texture-drop-zone.drag-over {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-color: #fff;
+  background-color: rgba(80, 80, 80, 0.5);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .drop-zone-text {
-  color: rgb(62, 62, 62);
-  font-size: 14px;
+  color: rgba(241, 241, 241, 0.5);
+  font-size: 11px;
   pointer-events: none;
 }
 
@@ -218,8 +283,8 @@
 
 .upload-icon,
 .block-icon {
-  font-size: 24px;
-  color: #666;
+  width: 20px;
+  height: 20px;
 }
 
 .texture-drop-zone.drag-over .upload-icon,
@@ -231,7 +296,7 @@
   position: relative;
   background-color: rgba(255, 255, 255, 0.363);
   border: 2px solid #ffffff;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px;
   margin-top: 10px;
   font-size: 14px;

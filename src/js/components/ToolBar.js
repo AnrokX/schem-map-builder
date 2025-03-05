@@ -317,7 +317,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	return (
 		<>
 			<div className="controls-container">
-				<div className="control-group">
+				<div className="control-group contol-group-start">
 					<div className="control-button-wrapper">
 						<Tooltip text="Import just the map file">
 							<button
@@ -453,7 +453,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					</div>
 					<div className="control-label">Placement Tools</div>
 				</div>
-
 				<div className="control-group">
 					<div className="control-button-wrapper">
 						<Tooltip text="Generate solid cube">
@@ -481,7 +480,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					<div className="control-label">Shape Tools</div>
 				</div>
 
-				<div className="control-group">
+				<div className="control-group contol-group-end">
 					<div className="control-button-wrapper">
 						<Tooltip text="Change grid size">
 							<button

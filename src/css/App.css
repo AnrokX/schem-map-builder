@@ -34,44 +34,47 @@ body {
 body {
   margin: 0;
   font-family: 'Inter', sans-serif;
-  font-weight: 500;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-weight: 400;
   font-size: 14px;
+  color: white;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+a {
+  cursor: pointer;
 }
 
 /* Global Button Styles */
 button {
-  background-color: linear-gradient(to bottom, #e6f3ff, #b3d9ff);
+  background-color: transparent;
   border: none;
+  font-size: 16px;
   border-radius: 5px;
   padding: 8px 15px;
   cursor: pointer;
-  color: #333;
+  color: white;
   font-weight: bold;
 }
 
 button:hover {
-  background: linear-gradient(to bottom, #d1e8ff, #99ccff);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 button.selected {
-  background: linear-gradient(to bottom, #d1e8ff, #99ccff);
+  background: #0084FF;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  border: 2px solid #0084ff;
+  border: none;
 }
 
-button:active {
-  background: linear-gradient(to bottom, #b3d9ff, #e6f3ff);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.1);
+.vignette-gradient {
+  width: 100%;
+  height: 200px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
+  mix-blend-mode: overlay;
+  z-index: 10;
 }
-
 
 /* ==========================================================================
    UI Components
@@ -82,7 +85,7 @@ button:active {
   position: fixed;
   top: 10px;
   right: 10px;
-  background-color: rgba(0,0,0,0.7);
+  background-color: rgba(13,13,13,0.7);
   color: white;
   padding: 15px;
   font-family: monospace;
@@ -91,6 +94,8 @@ button:active {
   width: 200px;
   border-radius: 10px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .debug-info p {
@@ -136,14 +141,29 @@ button:active {
 }
 
 /* Add this new style for the Hytopia logo */
-.hytopia-logo {
+.hytopia-logo-wrapper {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 20px;
+  left: 20px;
   width: 200px; /* Adjust the size as needed */
   z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
   -webkit-user-drag: none;
   pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.hytopia-logo-wrapper img {
+  width: 100%;
+  object-fit: contain;
+}
+
+.hytopia-version-text {
+  font-size: 12px;
+  color: rgb(255, 255, 255);
+  margin-top: 5px;
 }
 
 .camera-controls-wrapper {

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { FaUpload, FaCube, FaTree } from "react-icons/fa";
 import BlockButton from "./BlockButton";
 import EnvironmentButton from "./EnvironmentButton";
 import { DatabaseManager, STORES } from '../DatabaseManager';
@@ -275,10 +274,24 @@ const BlockToolsSidebar = ({
     <div className="block-tools-container">
       <div className="dead-space"></div>
       <div className="block-tools-sidebar">
+        <div className="tab-button-wrapper">
+          <button
+            className={`tab-button-left ${activeTab === "blocks" ? "active" : ""}`}
+            onClick={() => handleTabChange("blocks")}
+          >
+            Blocks
+          </button>
+          <button
+            className={`tab-button-right ${activeTab === "environment" ? "active" : ""}`}
+            onClick={() => handleTabChange("environment")}
+          >
+            Environment
+          </button>
+        </div>
         <div className="block-buttons-grid">
           {activeTab === "blocks" ? (
             <>
-              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left" }}>
+              <div className="block-tools-section-label">
                 Default Blocks (ID: 1-99)
               </div>
               {blockTypes.filter(block => block.id < 100).map((blockType) => (
@@ -294,7 +307,7 @@ const BlockToolsSidebar = ({
                   handleDragStart={handleDragStart}
                 />
               ))}
-              <div style={{ width: "100%", borderBottom: "2px solid #ccc", fontSize: "12px", textAlign: "left", marginTop: "10px" }}>
+              <div className="block-tools-section-label">
                 Custom Blocks (ID: 100-199)
               </div>
               {customBlocks.filter(block => block.id >= 100 && block.id < 200).map((blockType) => (
@@ -553,8 +566,7 @@ const BlockToolsSidebar = ({
         >
           <div className="drop-zone-content">
             <div className="drop-zone-icons">
-              <FaUpload className="upload-icon" />
-              {activeTab === "blocks" ? <FaCube className="block-icon" /> : <FaTree className="block-icon" />}
+              <img className="upload-icon" src="./assets/ui/icons/upload-icon.png" />
             </div>
             <div className="drop-zone-text">
               {activeTab === "blocks" 
@@ -562,21 +574,6 @@ const BlockToolsSidebar = ({
                 : "Drag .gltf models here to add new environment objects"}
             </div>
           </div>
-        </div>
-
-        <div className="tab-button-wrapper">
-          <button
-            className={`tab-button ${activeTab === "blocks" ? "active" : ""}`}
-            onClick={() => handleTabChange("blocks")}
-          >
-            Blocks
-          </button>
-          <button
-            className={`tab-button ${activeTab === "environment" ? "active" : ""}`}
-            onClick={() => handleTabChange("environment")}
-          >
-            Environment
-          </button>
         </div>
       </div>
       <div className="dead-space"></div>
