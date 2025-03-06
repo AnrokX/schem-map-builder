@@ -492,74 +492,80 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 	/// Raycast and Grid Intersection Functions ///
 
 	const getRaycastIntersection = () => {
-        // Use the raw pointer coordinates directly from THREE.js
-        const normalizedMouse = pointer.clone();
-        // Setup raycaster with the normalized coordinates
-        raycaster.setFromCamera(normalizedMouse, camera);
-        // Create a temporary array to store all intersections
-        let allIntersections = [];
-        // Manually check each block in the terrain
-        Object.entries(terrainRef.current).forEach(([posKey, blockId]) => {
-            // Skip recently placed blocks during placement
-            if (isPlacingRef.current && recentlyPlacedBlocksRef.current.has(posKey)) {
-                return;
-            }
-            
-            const [x, y, z] = posKey.split(',').map(Number);
-            // Create a temporary box for raycasting
-            const tempBox = new THREE.Box3(
-                new THREE.Vector3(x - 0.5, y - 0.5, z - 0.5),
-                new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5)
-            );
-            // Check if ray intersects this box
-            const ray = raycaster.ray.clone();
-            const intersection = ray.intersectBox(tempBox, new THREE.Vector3());
-            if (intersection) {
-                // Calculate which face was hit
-                const normal = new THREE.Vector3();
-                const epsilon = 0.001;
-                // Determine which face was hit based on intersection point
-                if (Math.abs(intersection.x - (x - 0.5)) < epsilon) normal.set(-1, 0, 0);
-                else if (Math.abs(intersection.x - (x + 0.5)) < epsilon) normal.set(1, 0, 0);
-                else if (Math.abs(intersection.y - (y - 0.5)) < epsilon) normal.set(0, -1, 0);
-                else if (Math.abs(intersection.y - (y + 0.5)) < epsilon) normal.set(0, 1, 0);
-                else if (Math.abs(intersection.z - (z - 0.5)) < epsilon) normal.set(0, 0, -1);
-                else if (Math.abs(intersection.z - (z + 0.5)) < epsilon) normal.set(0, 0, 1);
-                allIntersections.push({
-                    distance: ray.origin.distanceTo(intersection),
-                    point: intersection,
-                    normal: normal,
-                    object: { isBlock: true, position: new THREE.Vector3(x, y, z) }
-                });
-            }
-        });
-        // Also check for intersections with the shadow plane and grid
-        const planeIntersects = raycaster.intersectObjects([shadowPlaneRef.current, gridRef.current])
-            .filter(intersect => !intersect.object.name?.includes("preview"));
-        // Combine all intersections and sort by distance
-        allIntersections = [...allIntersections, ...planeIntersects]
-            .sort((a, b) => a.distance - b.distance);
-        // If no intersections, return null
-        if (!allIntersections.length) return null;
-        // Get the first (closest) intersection
-        const firstHit = allIntersections[0];
-        // If the intersection is with the shadow plane or grid
-        if (firstHit.object === shadowPlaneRef.current || firstHit.object === gridRef.current) {
-            return {
-                point: new THREE.Vector3(
-                    firstHit.point.x,
-                    0,
-                    firstHit.point.z
-                ),
-                normal: new THREE.Vector3(0, 1, 0), // Always use up normal for shadow plane
-            };
-        }
-        // For block intersections
-        return {
-            point: firstHit.point,
-            normal: firstHit.normal,
-        };
-    };
+		// Use the raw pointer coordinates directly from THREE.js
+		const normalizedMouse = pointer.clone();
+		// Setup raycaster with the normalized coordinates
+		raycaster.setFromCamera(normalizedMouse, camera);
+		// Create a temporary array to store all intersections
+		let allIntersections = [];
+		// Manually check each block in the terrain
+		Object.entries(terrainRef.current).forEach(([posKey, blockId]) => {
+			// Skip recently placed blocks during placement
+			if (isPlacingRef.current && recentlyPlacedBlocksRef.current.has(posKey)) {
+				return;
+			}
+			
+			const [x, y, z] = posKey.split(',').map(Number);
+			// Create a temporary box for raycasting
+			const tempBox = new THREE.Box3(
+				new THREE.Vector3(x - 0.5, y - 0.5, z - 0.5),
+				new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5)
+			);
+			// Check if ray intersects this box
+			const ray = raycaster.ray.clone();
+			const intersection = ray.intersectBox(tempBox, new THREE.Vector3());
+			if (intersection) {
+				// Calculate which face was hit
+				const normal = new THREE.Vector3();
+				const epsilon = 0.001;
+				// Determine which face was hit based on intersection point
+				if (Math.abs(intersection.x - (x - 0.5)) < epsilon) normal.set(-1, 0, 0);
+				else if (Math.abs(intersection.x - (x + 0.5)) < epsilon) normal.set(1, 0, 0);
+				else if (Math.abs(intersection.y - (y - 0.5)) < epsilon) normal.set(0, -1, 0);
+				else if (Math.abs(intersection.y - (y + 0.5)) < epsilon) normal.set(0, 1, 0);
+				else if (Math.abs(intersection.z - (z - 0.5)) < epsilon) normal.set(0, 0, -1);
+				else if (Math.abs(intersection.z - (z + 0.5)) < epsilon) normal.set(0, 0, 1);
+				allIntersections.push({
+					distance: ray.origin.distanceTo(intersection),
+					point: intersection,
+					normal: normal,
+					object: { isBlock: true, position: new THREE.Vector3(x, y, z) }
+				});
+			}
+		});
+		
+		// Only check for intersections with the shadow plane, ignore the grid
+		const planeIntersects = raycaster.intersectObject(shadowPlaneRef.current)
+			.filter(intersect => !intersect.object.name?.includes("preview"));
+		
+		// Combine all intersections and sort by distance
+		allIntersections = [...allIntersections, ...planeIntersects]
+			.sort((a, b) => a.distance - b.distance);
+		
+		// If no intersections, return null
+		if (!allIntersections.length) return null;
+		
+		// Get the first (closest) intersection
+		const firstHit = allIntersections[0];
+		
+		// If the intersection is with the shadow plane
+		if (firstHit.object === shadowPlaneRef.current) {
+			return {
+				point: new THREE.Vector3(
+					firstHit.point.x,
+					0,
+					firstHit.point.z
+				),
+				normal: new THREE.Vector3(0, 1, 0), // Always use up normal for shadow plane
+			};
+		}
+		
+		// For block intersections
+		return {
+			point: firstHit.point,
+			normal: firstHit.normal,
+		};
+	};
 
 	// Throttle mouse move updates
 	const updatePreviewPosition = () => {
@@ -596,9 +602,10 @@ function TerrainBuilder({ onSceneReady, previewPositionToAppJS, currentBlockType
 			} else {
 				// For add mode, add a small offset in the normal direction before rounding
 				tempVectorRef.current.add(intersection.normal.clone().multiplyScalar(0.01));
-				tempVectorRef.current.x = Math.round(tempVectorRef.current.x);
-				tempVectorRef.current.y = Math.round(tempVectorRef.current.y);
-				tempVectorRef.current.z = Math.round(tempVectorRef.current.z);
+				// Replace simple rounding with a more consistent approach for negative coordinates
+				tempVectorRef.current.x = Math.sign(tempVectorRef.current.x) * Math.round(Math.abs(tempVectorRef.current.x));
+				tempVectorRef.current.y = Math.sign(tempVectorRef.current.y) * Math.round(Math.abs(tempVectorRef.current.y));
+				tempVectorRef.current.z = Math.sign(tempVectorRef.current.z) * Math.round(Math.abs(tempVectorRef.current.z));
 			}
 
 			// Maintain Y position during placement
