@@ -612,7 +612,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 				<div className="modal-overlay" onClick={(e) => handleModalOverlayClick(e, setShowBorderModal)}>
 					<div className="modal-content">
 						<div className="modal-image-container">
-							<img src="ui/images/border_example.png" alt="Border Example" className="modal-image" />
+							<img src="./assets/ui/images/boarder_of_bricks.png" alt="Border Example" className="modal-image" />
 						</div>
 						<h3 className="modal-title">Generate Wall Blocks (Boarder)</h3>
 						<p className="modal-description">Generate a boarder of blocks. Enter the dimensions to define the size of the shape. The currently selected block will be used.</p>
