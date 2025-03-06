@@ -179,6 +179,7 @@ button {
   margin: 0 5px;
   height: 5px;
   -webkit-appearance: none;
+  appearance: none;
   background: rgba(241, 241, 241, 0.3);
   border-radius: 5px;
   outline: none;
@@ -187,6 +188,7 @@ button {
 /* Style the range slider thumb */
 .modal-input input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
+  appearance: none;
   width: 15px;
   height: 15px;
   border-radius: 50%;
