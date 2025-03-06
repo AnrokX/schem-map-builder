@@ -10,6 +10,7 @@ import {
 	importMap,
 	importAssetPack
 } from '../ImportExport';
+import { importSchematic } from '../SchematicConverter';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, setGridSize, undoRedoManager, currentBlockType, environmentBuilderRef }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
@@ -314,6 +315,45 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 	};
 
+	// Add this function near the onMapFileSelected function
+	const onSchematicFileSelected = (event) => {
+		console.log("Schematic file selected:", event.target.files[0]);
+		if (event.target.files && event.target.files[0]) {
+			// Show loading indicator or message
+			const loadingMessage = document.createElement('div');
+			loadingMessage.className = 'loading-message';
+			loadingMessage.innerText = 'Importing schematic...';
+			loadingMessage.style.position = 'fixed';
+			loadingMessage.style.top = '50%';
+			loadingMessage.style.left = '50%';
+			loadingMessage.style.transform = 'translate(-50%, -50%)';
+			loadingMessage.style.padding = '20px';
+			loadingMessage.style.background = 'rgba(0, 0, 0, 0.8)';
+			loadingMessage.style.color = 'white';
+			loadingMessage.style.borderRadius = '5px';
+			loadingMessage.style.zIndex = '1000';
+			document.body.appendChild(loadingMessage);
+			
+			// Import the schematic file
+			importSchematic(event.target.files[0], terrainBuilderRef, environmentBuilderRef)
+				.then(success => {
+					// Remove loading message
+					document.body.removeChild(loadingMessage);
+					
+					if (success) {
+						// Show success message
+						alert('Schematic imported successfully!');
+					}
+				})
+				.catch(error => {
+					// Remove loading message
+					document.body.removeChild(loadingMessage);
+					console.error('Error importing schematic:', error);
+					alert(`Error importing schematic: ${error.message}`);
+				});
+		}
+	};
+
 	// Add a handler for modal overlay clicks
 	const handleModalOverlayClick = (e, setModalVisibility) => {
 		// Only close if the click was directly on the overlay (not on the modal content)
@@ -338,6 +378,20 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 								type="file"
 								accept=".json"
 								onChange={onMapFileSelected}
+								style={{ display: "none" }}
+							/>
+						</Tooltip>
+						<Tooltip text="Import Minecraft schematic file">
+							<button
+								onClick={() => document.getElementById("schematicFileInput").click()}
+								className="control-button import-export-button">
+								Schematic
+							</button>
+							<input
+								id="schematicFileInput"
+								type="file"
+								accept=".schematic,.schem,.litematic"
+								onChange={onSchematicFileSelected}
 								style={{ display: "none" }}
 							/>
 						</Tooltip>
