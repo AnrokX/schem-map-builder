@@ -321,6 +321,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		if (event.target.files && event.target.files[0]) {
 			// Show loading indicator or message
 			const loadingMessage = document.createElement('div');
+			loadingMessage.id = 'schematic-loading-message';
 			loadingMessage.className = 'loading-message';
 			loadingMessage.innerText = 'Importing schematic...';
 			loadingMessage.style.position = 'fixed';
@@ -337,19 +338,73 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			// Import the schematic file
 			importSchematic(event.target.files[0], terrainBuilderRef, environmentBuilderRef)
 				.then(success => {
-					// Remove loading message
-					document.body.removeChild(loadingMessage);
+					// Remove loading message safely
+					const loadingEl = document.getElementById('schematic-loading-message');
+					if (loadingEl && loadingEl.parentNode) {
+						loadingEl.parentNode.removeChild(loadingEl);
+					}
 					
 					if (success) {
-						// Show success message
-						alert('Schematic imported successfully!');
+						// Show success message with block count
+						const blockCount = Object.keys(terrainBuilderRef.current.blocks).length;
+						const successMsg = document.createElement('div');
+						successMsg.id = 'schematic-success-message';
+						successMsg.className = 'success-message';
+						successMsg.innerText = `Schematic imported successfully! ${blockCount} blocks placed.`;
+						successMsg.style.position = 'fixed';
+						successMsg.style.top = '20px';
+						successMsg.style.left = '50%';
+						successMsg.style.transform = 'translateX(-50%)';
+						successMsg.style.padding = '10px 20px';
+						successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
+						successMsg.style.color = 'white';
+						successMsg.style.borderRadius = '5px';
+						successMsg.style.zIndex = '1000';
+						document.body.appendChild(successMsg);
+						
+						// Remove success message after 3 seconds
+						setTimeout(() => {
+							const successEl = document.getElementById('schematic-success-message');
+							if (successEl && successEl.parentNode) {
+								successEl.parentNode.removeChild(successEl);
+							}
+						}, 3000);
 					}
 				})
 				.catch(error => {
-					// Remove loading message
-					document.body.removeChild(loadingMessage);
+					// Remove loading message safely
+					const loadingEl = document.getElementById('schematic-loading-message');
+					if (loadingEl && loadingEl.parentNode) {
+						loadingEl.parentNode.removeChild(loadingEl);
+					}
+					
+					// Show error message
+					const errorMsg = document.createElement('div');
+					errorMsg.id = 'schematic-error-message';
+					errorMsg.className = 'error-message';
+					errorMsg.innerText = `Error importing schematic: ${error.message}`;
+					errorMsg.style.position = 'fixed';
+					errorMsg.style.top = '20px';
+					errorMsg.style.left = '50%';
+					errorMsg.style.transform = 'translateX(-50%)';
+					errorMsg.style.padding = '10px 20px';
+					errorMsg.style.background = 'rgba(255, 0, 0, 0.8)';
+					errorMsg.style.color = 'white';
+					errorMsg.style.borderRadius = '5px';
+					errorMsg.style.zIndex = '1000';
+					errorMsg.style.maxWidth = '80%';
+					errorMsg.style.textAlign = 'center';
+					document.body.appendChild(errorMsg);
+					
+					// Remove error message after 5 seconds
+					setTimeout(() => {
+						const errorEl = document.getElementById('schematic-error-message');
+						if (errorEl && errorEl.parentNode) {
+							errorEl.parentNode.removeChild(errorEl);
+						}
+					}, 5000);
+					
 					console.error('Error importing schematic:', error);
-					alert(`Error importing schematic: ${error.message}`);
 				});
 		}
 	};
