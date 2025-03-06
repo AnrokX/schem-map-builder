@@ -1,0 +1,59 @@
+{
+  "blocks": {
+    "minecraft:stone": {
+      "id": 19,
+      "hytopiaBlock": "stone",
+      "textureUri": "blocks/stone.png"
+    },
+    "minecraft:grass_block": {
+      "id": 7,
+      "hytopiaBlock": "grass",
+      "textureUri": "blocks/grass.png"
+    },
+    "minecraft:dirt": {
+      "id": 4,
+      "hytopiaBlock": "dirt",
+      "textureUri": "blocks/dirt.png"
+    },
+    "minecraft:cobblestone": {
+      "id": 13,
+      "hytopiaBlock": "mossy-coblestone",
+      "textureUri": "blocks/mossy-coblestone.png"
+    },
+    "minecraft:oak_planks": {
+      "id": 16,
+      "hytopiaBlock": "oak-planks",
+      "textureUri": "blocks/oak-planks.png"
+    },
+    "minecraft:oak_log": {
+      "id": 11,
+      "hytopiaBlock": "log-side",
+      "textureUri": "blocks/log-side.png"
+    },
+    "minecraft:oak_leaves": {
+      "id": 15,
+      "hytopiaBlock": "oak-leaves",
+      "textureUri": "blocks/oak-leaves.png"
+    },
+    "minecraft:sand": {
+      "id": 17,
+      "hytopiaBlock": "sand",
+      "textureUri": "blocks/sand.png"
+    },
+    "minecraft:glass": {
+      "id": 6,
+      "hytopiaBlock": "glass",
+      "textureUri": "blocks/glass.png"
+    },
+    "minecraft:water": {
+      "id": 22,
+      "hytopiaBlock": "water-still",
+      "textureUri": "blocks/water-still.png"
+    },
+    "minecraft:bricks": {
+      "id": 1,
+      "hytopiaBlock": "bricks",
+      "textureUri": "blocks/bricks.png"
+    }
+  }
+} 
