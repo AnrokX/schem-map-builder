@@ -337,14 +337,36 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
           console.log("Palette entries:", Object.keys(palette).length);
           console.log("BlockData length:", blockData.length);
           
-          // Convert from palette index to block name
+          // Debug the palette structure
+          console.log("Palette structure:", JSON.stringify(palette).substring(0, 500) + "...");
+          
+          // In WorldEdit format, the palette is inverted compared to our expectation
+          // The keys are the block names and the values are the IDs
+          // We need to create a mapping from ID to name
           const paletteIdToName = {};
+          
+          // First populate from the palette - in WorldEdit the keys are names, values are IDs
           Object.entries(palette).forEach(([name, id]) => {
-            paletteIdToName[id] = name;
+            // Handle cases where id might be an object with a value property
+            const actualId = typeof id === 'object' && id !== null && 'value' in id ? id.value : id;
+            paletteIdToName[actualId] = name;
+            
+            // Log ID 0 mapping for debugging
+            if (actualId === 0 || actualId === "0") {
+              console.log(`Palette has ID 0 mapped to name: ${name}`);
+            }
           });
+          
+          // Debug the first few entries of paletteIdToName
+          console.log("First few paletteIdToName entries:", 
+            Object.entries(paletteIdToName).slice(0, 5).map(([id, name]) => `${id}:${name}`).join(", "));
           
           // Process BlockData
           let blockIndex = 0;
+          let processedBlocks = 0;
+          let airBlocks = 0;
+          let nonMappedBlocks = 0;
+          
           for (let y = 0; y < height; y++) {
             for (let z = 0; z < length; z++) {
               for (let x = 0; x < width; x++) {
@@ -355,8 +377,10 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                     ? rawPaletteId.value 
                     : rawPaletteId;
                   
-                  // Get the block name - try with both string and number keys
+                  // Get block name from our ID to name mapping
                   let blockName = paletteIdToName[paletteId];
+                  
+                  // If still not found, try converting string/number formats
                   if (!blockName && typeof paletteId === 'number') {
                     blockName = paletteIdToName[String(paletteId)];
                   }
@@ -364,12 +388,20 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                     blockName = paletteIdToName[parseInt(paletteId, 10)];
                   }
                   
-                  // Log the first few blocks to understand what's happening
+                  // Log the first few blocks
                   if (blockIndex < 10) {
                     console.log(`Block at index ${blockIndex}: ID=${paletteId}, Name=${blockName || 'undefined'}`);
                   }
                   
-                  if (blockName && blockName !== 'minecraft:air') {
+                  // If it's air, count but skip processing
+                  if (blockName && blockName.endsWith(':air')) {
+                    airBlocks++;
+                    blockIndex++;
+                    continue;
+                  }
+                  
+                  // If we found a valid block name, map it to HYTOPIA
+                  if (blockName) {
                     // Convert to HYTOPIA block ID
                     let hytopiaBlockId;
                     
@@ -408,6 +440,21 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                     const finalZ = z - Math.floor(length / 2);
                     
                     hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
+                    processedBlocks++;
+                  } else {
+                    nonMappedBlocks++;
+                    if (nonMappedBlocks < 5) {
+                      console.log(`Unable to find block name for palette ID ${paletteId}`);
+                    }
+                    // For blocks without a name, use a fallback
+                    // Add to terrain data with correct coordinates
+                    const finalX = x - Math.floor(width / 2);
+                    const finalY = y;
+                    const finalZ = z - Math.floor(length / 2);
+                    
+                    // Use stone as a fallback
+                    hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = fallbackMapping.unknown.id;
+                    processedBlocks++;
                   }
                   
                   blockIndex++;
@@ -415,6 +462,8 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
               }
             }
           }
+          
+          console.log(`Processed ${processedBlocks} blocks (${airBlocks} air blocks skipped, ${nonMappedBlocks} blocks without names)`);
         } catch (error) {
           console.error('Error processing nested modern WorldEdit format:', error);
           throw new Error(`Failed to process nested modern WorldEdit format: ${error.message}`);
