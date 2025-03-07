@@ -170,6 +170,69 @@ function getFallbackBlockId(blockName) {
   return fallbackMapping.unknown.id;
 }
 
+// Helper function to process blocks in chunks
+async function processBlocksInChunks(blockData, width, height, length, offsetX, offsetY, offsetZ, paletteIdToName, blockMapping, chunkSize = 10000) {
+  const blocks = {};
+  const totalBlocks = blockData.length;
+  let blockIndex = 0;
+
+  return new Promise((resolve) => {
+    function processChunk() {
+      const chunkEnd = Math.min(blockIndex + chunkSize, totalBlocks);
+      
+      for (; blockIndex < chunkEnd; blockIndex++) {
+        const y = Math.floor(blockIndex / (width * length));
+        const remainingIndex = blockIndex % (width * length);
+        const z = Math.floor(remainingIndex / width);
+        const x = remainingIndex % width;
+
+        const rawPaletteId = blockData[blockIndex];
+        const paletteId = typeof rawPaletteId === 'object' && rawPaletteId !== null && 'value' in rawPaletteId 
+          ? rawPaletteId.value 
+          : rawPaletteId;
+        
+        let blockName = paletteIdToName[paletteId];
+        if (!blockName) continue;
+        if (blockName === 'minecraft:air') continue;
+
+        let hytopiaBlockId;
+        if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+          hytopiaBlockId = blockMapping.blocks[blockName].id;
+        } else {
+          const shortName = blockName.replace('minecraft:', '');
+          const baseName = blockName.split('[')[0];
+          
+          if (blockMapping.blocks && blockMapping.blocks[`minecraft:${shortName}`]) {
+            hytopiaBlockId = blockMapping.blocks[`minecraft:${shortName}`].id;
+          } else if (blockMapping.blocks && blockMapping.blocks[baseName]) {
+            hytopiaBlockId = blockMapping.blocks[baseName].id;
+          } else {
+            hytopiaBlockId = getFallbackBlockId(blockName);
+          }
+        }
+
+        if (!hytopiaBlockId) {
+          hytopiaBlockId = fallbackMapping.unknown.id;
+        }
+
+        const finalX = x - Math.floor(width / 2) + offsetX;
+        const finalY = y + offsetY;
+        const finalZ = z - Math.floor(length / 2) + offsetZ;
+        
+        blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
+      }
+
+      if (blockIndex < totalBlocks) {
+        setTimeout(processChunk, 0);
+      } else {
+        resolve(blocks);
+      }
+    }
+
+    processChunk();
+  });
+}
+
 // Main function to handle schematic file import
 export async function importSchematic(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json', regionSelection = null) {
   try {
@@ -389,147 +452,33 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
         width = schematic.Width?.value || 0;
         height = schematic.Height?.value || 0;
         length = schematic.Length?.value || 0;
-        const offsetX = schematic.Offset?.value?.x?.value || 0;
-        const offsetY = schematic.Offset?.value?.y?.value || 0;
-        const offsetZ = schematic.Offset?.value?.z?.value || 0;
+        offsetX = schematic.Offset?.value?.x?.value || 0;
+        offsetY = schematic.Offset?.value?.y?.value || 0;
+        offsetZ = schematic.Offset?.value?.z?.value || 0;
         
         console.log(`Dimensions: ${width}x${height}x${length}, Offset: ${offsetX},${offsetY},${offsetZ}`);
         
         palette = schematic.Palette.value;
         blockData = schematic.BlockData.value;
         
-        console.log(`Palette entries: ${Object.keys(palette).length}, Sample: ${Object.keys(palette).slice(0, 3).join(', ')}`);
-        console.log(`BlockData length: ${blockData.length}`);
-        
-        // Debug the actual blockData
-        console.log("BlockData type:", typeof blockData);
-        console.log("Is BlockData array?", Array.isArray(blockData));
-        
-        // Examine the structure of the first few elements if it's an array
-        if (Array.isArray(blockData) && blockData.length > 0) {
-          console.log("First few BlockData elements structure:", 
-            blockData.slice(0, 5).map(item => `${typeof item}:${item}`).join(", "));
-        }
-        
-        // In modern WorldEdit format, the palette maps block names to IDs (not IDs to names)
-        // We need to reverse this mapping to create paletteIdToName
         const paletteIdToName = {};
         Object.entries(palette).forEach(([blockName, id]) => {
-          // Handle case where id might be an object with a value property
           const actualId = typeof id === 'object' && id !== null && 'value' in id ? id.value : id;
           paletteIdToName[actualId] = blockName;
-          console.log(`Mapped palette ID ${actualId} to block name ${blockName}`);
         });
-        
-        console.log(`Converted paletteIdToName map with ${Object.keys(paletteIdToName).length} entries`);
-        if (Object.keys(paletteIdToName).length > 0) {
-          console.log("Sample paletteIdToName entries:", 
-            Object.entries(paletteIdToName).slice(0, 3).map(([id, name]) => `${id}:${name}`).join(", "));
-        }
-        
-        // Debug palettes for first few entries
-        const paletteEntries = Object.keys(paletteIdToName).slice(0, 3);
-        console.log("Sample palette entries:", paletteEntries);
-        // Data might be used in future implementation
-        const paletteData = blockData?.slice(0, 10); // eslint-disable-line no-unused-vars
-        
-        // Process BlockData
-        let blockIndex = 0;
-        for (let y = 0; y < height; y++) {
-          for (let z = 0; z < length; z++) {
-            for (let x = 0; x < width; x++) {
-              if (blockIndex < blockData.length) {
-                const rawPaletteId = blockData[blockIndex];
-                // Handle cases where paletteId might be an object with a value property
-                const paletteId = typeof rawPaletteId === 'object' && rawPaletteId !== null && 'value' in rawPaletteId 
-                  ? rawPaletteId.value 
-                  : rawPaletteId;
-                
-                // Get the block name - try with both string and number keys
-                let blockName = paletteIdToName[paletteId];
-                if (!blockName && typeof paletteId === 'number') {
-                  blockName = paletteIdToName[String(paletteId)];
-                }
-                if (!blockName && typeof paletteId === 'string') {
-                  blockName = paletteIdToName[parseInt(paletteId, 10)];
-                }
-                
-                // Log the first few blocks to understand what's happening
-                if (blockIndex < 10) {
-                  console.log(`Block at index ${blockIndex}: ID=${paletteId}, Name=${blockName || 'undefined'}`);
-                }
-                
-                if (blockName && blockName !== 'minecraft:air') {
-                  // Convert to HYTOPIA block ID
-                  let hytopiaBlockId;
-                  let isUnmappedBlock = false;
-                  
-                  // Try to find in mapping - exact match first
-                  if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                    hytopiaBlockId = blockMapping.blocks[blockName].id;
-                    console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
-                  } else {
-                    // Try with different formats
-                    const shortName = blockName.replace('minecraft:', '');
-                    const baseName = blockName.split('[')[0]; // Remove block states
-                    
-                    if (blockMapping.blocks && blockMapping.blocks[`minecraft:${shortName}`]) {
-                      hytopiaBlockId = blockMapping.blocks[`minecraft:${shortName}`].id;
-                      console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} via minecraft:${shortName}`);
-                    } else if (blockMapping.blocks && blockMapping.blocks[baseName]) {
-                      hytopiaBlockId = blockMapping.blocks[baseName].id;
-                      console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} via ${baseName}`);
-                    } else {
-                      // Use fallback mapping as last resort
-                      hytopiaBlockId = getFallbackBlockId(blockName);
-                      console.log(`Used fallback mapping for ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
-                      
-                      // Track this as an unmapped block
-                      isUnmappedBlock = true;
-                    }
-                  }
-                  
-                  // Always use a default fallback if we still don't have a valid ID
-                  if (!hytopiaBlockId) {
-                    hytopiaBlockId = fallbackMapping.unknown.id;
-                    console.log(`Using default stone block for ${blockName} as last resort`);
-                    // Track this as an unmapped block
-                    isUnmappedBlock = true;
-                  }
-                  
-                  // Add to terrain data with correct coordinates
-                  // Adjust coordinates to center the schematic
-                  const finalX = x - Math.floor(width / 2) + offsetX;
-                  const finalY = y + offsetY;
-                  const finalZ = z - Math.floor(length / 2) + offsetZ;
-                  
-                  // Skip this block if it's outside the selected region
-                  if (regionSelection) {
-                    if (finalX < regionSelection.minX || finalX > regionSelection.maxX ||
-                        finalY < regionSelection.minY || finalY > regionSelection.maxY ||
-                        finalZ < regionSelection.minZ || finalZ > regionSelection.maxZ) {
-                      continue; // Skip this block
-                    }
-                  }
-                  
-                  // Track unmapped block if necessary
-                  if (isUnmappedBlock) {
-                    unmappedBlockTracker.trackBlock(blockName, `${finalX},${finalY},${finalZ}`, hytopiaBlockId);
-                  }
-                  
-                  hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
-                  
-                  // Add log for first 5 blocks to debug
-                  if (Object.keys(hytopiaMap.blocks).length <= 5) {
-                    console.log(`Added block: ${blockName} at (${finalX},${finalY},${finalZ}) with ID ${hytopiaBlockId}`);
-                  }
-                }
-                
-                blockIndex++;
-              }
-            }
-          }
-        }
+
+        // Process blocks in chunks
+        hytopiaMap.blocks = await processBlocksInChunks(
+          blockData,
+          width,
+          height,
+          length,
+          offsetX,
+          offsetY,
+          offsetZ,
+          paletteIdToName,
+          blockMapping
+        );
         break;
         
       case "modern_worldedit_nested":
