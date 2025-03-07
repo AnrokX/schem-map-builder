@@ -1133,7 +1133,7 @@ export async function previewSchematic(file) {
             if (blockName === "minecraft:air" || 
                 blockName === "minecraft:cave_air" || 
                 blockName === "minecraft:void_air" ||
-                blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab")) {
+                (blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab"))) {
               paletteAir[palette[blockName].value] = true;
             }
           }
@@ -1165,7 +1165,7 @@ export async function previewSchematic(file) {
             if (blockName === "minecraft:air" || 
                 blockName === "minecraft:cave_air" || 
                 blockName === "minecraft:void_air" ||
-                blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab")) {
+                (blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab"))) {
               paletteAir[palette[blockName].value] = true;
             }
           }

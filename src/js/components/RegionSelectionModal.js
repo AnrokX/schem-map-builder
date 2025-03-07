@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FaTimes, FaCrop } from 'react-icons/fa';
 import './BlockImportModal.css'; // Reuse the same CSS for consistency
 
@@ -10,33 +10,108 @@ const RegionSelectionModal = ({
   centerOffset,
   actualBlockCount
 }) => {
-  // Initialize with the full dimensions of the schematic
-  const [minX, setMinX] = useState(-Math.floor(dimensions?.width / 2) || 0);
-  const [minY, setMinY] = useState(0);
-  const [minZ, setMinZ] = useState(-Math.floor(dimensions?.length / 2) || 0);
+  // Define the boundary limits based on dimensions and centerOffset
+  const minXBoundary = dimensions ? -Math.floor(dimensions.width / 2) + (centerOffset?.x || 0) : 0;
+  const minYBoundary = dimensions ? 0 + (centerOffset?.y || 0) : 0;
+  const minZBoundary = dimensions ? -Math.floor(dimensions.length / 2) + (centerOffset?.z || 0) : 0;
   
-  const [maxX, setMaxX] = useState(Math.ceil(dimensions?.width / 2) - 1 || 0);
-  const [maxY, setMaxY] = useState((dimensions?.height || 0) - 1);
-  const [maxZ, setMaxZ] = useState(Math.ceil(dimensions?.length / 2) - 1 || 0);
+  const maxXBoundary = dimensions ? Math.ceil(dimensions.width / 2) - 1 + (centerOffset?.x || 0) : 0;
+  const maxYBoundary = dimensions ? (dimensions.height || 0) - 1 + (centerOffset?.y || 0) : 0;
+  const maxZBoundary = dimensions ? Math.ceil(dimensions.length / 2) - 1 + (centerOffset?.z || 0) : 0;
+
+  // Initialize with the full dimensions of the schematic
+  const [minX, setMinX] = useState(minXBoundary);
+  const [minY, setMinY] = useState(minYBoundary);
+  const [minZ, setMinZ] = useState(minZBoundary);
+  
+  const [maxX, setMaxX] = useState(maxXBoundary);
+  const [maxY, setMaxY] = useState(maxYBoundary);
+  const [maxZ, setMaxZ] = useState(maxZBoundary);
   
   const [useFullMap, setUseFullMap] = useState(true);
+  const [validationError, setValidationError] = useState('');
   
+  // Function to ensure a value is within boundaries
+  const clampValue = useCallback((value, min, max) => {
+    return Math.min(Math.max(value, min), max);
+  }, []);
+
   // Update bounds when dimensions change
   useEffect(() => {
     if (dimensions) {
-      const centerX = centerOffset?.x || 0;
-      const centerY = centerOffset?.y || 0;
-      const centerZ = centerOffset?.z || 0;
+      setMinX(minXBoundary);
+      setMinY(minYBoundary);
+      setMinZ(minZBoundary);
       
-      setMinX(-Math.floor(dimensions.width / 2) + centerX);
-      setMinY(0 + centerY);
-      setMinZ(-Math.floor(dimensions.length / 2) + centerZ);
-      
-      setMaxX(Math.ceil(dimensions.width / 2) - 1 + centerX);
-      setMaxY((dimensions.height || 0) - 1 + centerY);
-      setMaxZ(Math.ceil(dimensions.length / 2) - 1 + centerZ);
+      setMaxX(maxXBoundary);
+      setMaxY(maxYBoundary);
+      setMaxZ(maxZBoundary);
     }
-  }, [dimensions, centerOffset]);
+  }, [dimensions, centerOffset, minXBoundary, minYBoundary, minZBoundary, maxXBoundary, maxYBoundary, maxZBoundary]);
+  
+  // Handle input changes with validation
+  const handleMinXChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minXBoundary, maxX);
+    setMinX(clampedValue);
+    validateCoordinates(clampedValue, maxX, minY, maxY, minZ, maxZ);
+  };
+  
+  const handleMaxXChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minX, maxXBoundary);
+    setMaxX(clampedValue);
+    validateCoordinates(minX, clampedValue, minY, maxY, minZ, maxZ);
+  };
+  
+  const handleMinYChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minYBoundary, maxY);
+    setMinY(clampedValue);
+    validateCoordinates(minX, maxX, clampedValue, maxY, minZ, maxZ);
+  };
+  
+  const handleMaxYChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minY, maxYBoundary);
+    setMaxY(clampedValue);
+    validateCoordinates(minX, maxX, minY, clampedValue, minZ, maxZ);
+  };
+  
+  const handleMinZChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minZBoundary, maxZ);
+    setMinZ(clampedValue);
+    validateCoordinates(minX, maxX, minY, maxY, clampedValue, maxZ);
+  };
+  
+  const handleMaxZChange = (value) => {
+    const parsedValue = parseInt(value);
+    if (isNaN(parsedValue)) return;
+    
+    const clampedValue = clampValue(parsedValue, minZ, maxZBoundary);
+    setMaxZ(clampedValue);
+    validateCoordinates(minX, maxX, minY, maxY, minZ, clampedValue);
+  };
+  
+  // Validate coordinates
+  const validateCoordinates = (minX, maxX, minY, maxY, minZ, maxZ) => {
+    if (minX > maxX || minY > maxY || minZ > maxZ) {
+      setValidationError('Minimum values must be less than maximum values.');
+    } else {
+      setValidationError('');
+    }
+  };
   
   // Calculate total blocks in the selected region (excluding air blocks)
   const calculateBlockCount = () => {
@@ -47,12 +122,12 @@ const RegionSelectionModal = ({
     
     // If the full dimension is selected, return the total count
     if (
-      minX === -Math.floor(dimensions.width / 2) + (centerOffset?.x || 0) &&
-      minY === 0 + (centerOffset?.y || 0) &&
-      minZ === -Math.floor(dimensions.length / 2) + (centerOffset?.z || 0) &&
-      maxX === Math.ceil(dimensions.width / 2) - 1 + (centerOffset?.x || 0) &&
-      maxY === (dimensions.height || 0) - 1 + (centerOffset?.y || 0) &&
-      maxZ === Math.ceil(dimensions.length / 2) - 1 + (centerOffset?.z || 0)
+      minX === minXBoundary &&
+      minY === minYBoundary &&
+      minZ === minZBoundary &&
+      maxX === maxXBoundary &&
+      maxY === maxYBoundary &&
+      maxZ === maxZBoundary
     ) {
       return actualBlockCount;
     }
@@ -73,7 +148,7 @@ const RegionSelectionModal = ({
     } else {
       // Validate that min is less than max for all coordinates
       if (minX > maxX || minY > maxY || minZ > maxZ) {
-        alert("Invalid region selection: minimum values must be less than maximum values.");
+        setValidationError('Invalid region selection: minimum values must be less than maximum values.');
         return;
       }
       
@@ -118,6 +193,18 @@ const RegionSelectionModal = ({
           
           {!useFullMap && (
             <div className="region-coordinates">
+              <div className="boundary-info">
+                <p>Valid X range: {minXBoundary} to {maxXBoundary}</p>
+                <p>Valid Y range: {minYBoundary} to {maxYBoundary}</p>
+                <p>Valid Z range: {minZBoundary} to {maxZBoundary}</p>
+              </div>
+              
+              {validationError && (
+                <div className="validation-error">
+                  {validationError}
+                </div>
+              )}
+              
               <div className="coordinate-group">
                 <h3>Minimum Coordinates</h3>
                 <div className="coordinate-inputs">
@@ -126,7 +213,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={minX} 
-                      onChange={(e) => setMinX(parseInt(e.target.value))} 
+                      onChange={(e) => handleMinXChange(e.target.value)}
+                      min={minXBoundary}
+                      max={maxX}
                     />
                   </div>
                   <div className="coordinate-input">
@@ -134,7 +223,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={minY} 
-                      onChange={(e) => setMinY(parseInt(e.target.value))} 
+                      onChange={(e) => handleMinYChange(e.target.value)}
+                      min={minYBoundary}
+                      max={maxY}
                     />
                   </div>
                   <div className="coordinate-input">
@@ -142,7 +233,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={minZ} 
-                      onChange={(e) => setMinZ(parseInt(e.target.value))} 
+                      onChange={(e) => handleMinZChange(e.target.value)}
+                      min={minZBoundary}
+                      max={maxZ}
                     />
                   </div>
                 </div>
@@ -156,7 +249,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={maxX} 
-                      onChange={(e) => setMaxX(parseInt(e.target.value))} 
+                      onChange={(e) => handleMaxXChange(e.target.value)}
+                      min={minX}
+                      max={maxXBoundary}
                     />
                   </div>
                   <div className="coordinate-input">
@@ -164,7 +259,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={maxY} 
-                      onChange={(e) => setMaxY(parseInt(e.target.value))} 
+                      onChange={(e) => handleMaxYChange(e.target.value)}
+                      min={minY}
+                      max={maxYBoundary}
                     />
                   </div>
                   <div className="coordinate-input">
@@ -172,7 +269,9 @@ const RegionSelectionModal = ({
                     <input 
                       type="number" 
                       value={maxZ} 
-                      onChange={(e) => setMaxZ(parseInt(e.target.value))} 
+                      onChange={(e) => handleMaxZChange(e.target.value)}
+                      min={minZ}
+                      max={maxZBoundary}
                     />
                   </div>
                 </div>
@@ -199,6 +298,7 @@ const RegionSelectionModal = ({
           <button 
             className="confirm-button" 
             onClick={handleConfirm}
+            disabled={!!validationError && !useFullMap}
           >
             <FaCrop /> {useFullMap ? "Import Full Map" : "Import Selected Region"}
           </button>
