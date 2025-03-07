@@ -337,16 +337,16 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			
 			// Import the schematic file
 			importSchematic(event.target.files[0], terrainBuilderRef, environmentBuilderRef)
-				.then(success => {
+				.then(result => {
 					// Remove loading message safely
 					const loadingEl = document.getElementById('schematic-loading-message');
 					if (loadingEl && loadingEl.parentNode) {
 						loadingEl.parentNode.removeChild(loadingEl);
 					}
 					
-					if (success) {
+					if (result && result.success) {
 						// Show success message with block count
-						const blockCount = Object.keys(terrainBuilderRef.current.blocks).length;
+						const blockCount = result.blockCount || 'multiple';
 						const successMsg = document.createElement('div');
 						successMsg.id = 'schematic-success-message';
 						successMsg.className = 'success-message';
