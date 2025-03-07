@@ -634,7 +634,8 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     
     console.log("Schematic import complete");
     
-    return true;
+    // Return the number of blocks imported
+    return { success: true, blockCount: Object.keys(hytopiaMap.blocks).length };
   } catch (error) {
     console.error('Error importing schematic:', error);
     throw error;
