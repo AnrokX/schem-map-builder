@@ -23,23 +23,23 @@ function decompressGzip(data) {
 
 // Define default fallback blocks for common categories
 const fallbackMapping = {
-  "stone": { id: 19, name: "stone", textureUri: "blocks/stone.png" },
-  "cobblestone": { id: 13, name: "mossy-coblestone", textureUri: "blocks/mossy-coblestone.png" },
+  "stone": { id: 37, name: "stone", textureUri: "blocks/stone.png" },
+  "cobblestone": { id: 24, name: "mossy-coblestone", textureUri: "blocks/mossy-coblestone.png" },
   "brick": { id: 1, name: "bricks", textureUri: "blocks/bricks.png" },
-  "wood": { id: 11, name: "log-side", textureUri: "blocks/log-side.png" },
-  "log": { id: 12, name: "log-top", textureUri: "blocks/log-top.png" },
-  "planks": { id: 16, name: "oak-planks", textureUri: "blocks/oak-planks.png" },
-  "dirt": { id: 4, name: "dirt", textureUri: "blocks/dirt.png" },
-  "grass": { id: 7, name: "grass", textureUri: "blocks/grass.png" },
-  "sand": { id: 17, name: "sand", textureUri: "blocks/sand.png" },
-  "leaves": { id: 15, name: "oak-leaves", textureUri: "blocks/oak-leaves.png" },
-  "glass": { id: 6, name: "glass", textureUri: "blocks/glass.png" },
-  "ice": { id: 9, name: "ice", textureUri: "blocks/ice.png" },
-  "water": { id: 22, name: "water-still", textureUri: "blocks/water-still.png" },
-  "ore": { id: 3, name: "diamond-ore", textureUri: "blocks/diamond-ore.png" },
+  "wood": { id: 23, name: "log", textureUri: "blocks/log.png" },
+  "log": { id: 23, name: "log", textureUri: "blocks/log.png" },
+  "planks": { id: 28, name: "oak-planks", textureUri: "blocks/oak-planks.png" },
+  "dirt": { id: 8, name: "dirt", textureUri: "blocks/dirt.png" },
+  "grass": { id: 16, name: "grass", textureUri: "blocks/grass.png" },
+  "sand": { id: 30, name: "sand", textureUri: "blocks/sand.png" },
+  "leaves": { id: 27, name: "oak-leaves", textureUri: "blocks/oak-leaves.png" },
+  "glass": { id: 14, name: "glass", textureUri: "blocks/glass.png" },
+  "ice": { id: 18, name: "ice", textureUri: "blocks/ice.png" },
+  "water": { id: 43, name: "water-still", textureUri: "blocks/water-still.png" },
+  "ore": { id: 7, name: "diamond-ore", textureUri: "blocks/diamond-ore.png" },
   "clay": { id: 2, name: "clay", textureUri: "blocks/clay.png" },
-  "gravel": { id: 8, name: "gravel", textureUri: "blocks/gravel.png" },
-  "unknown": { id: 19, name: "stone", textureUri: "blocks/stone.png" } // Default fallback
+  "gravel": { id: 17, name: "gravel", textureUri: "blocks/gravel.png" },
+  "unknown": { id: 37, name: "stone", textureUri: "blocks/stone.png" } // Default fallback
 };
 
 // Load block mapping file from a fetch request
@@ -150,22 +150,22 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
       console.log('Using hardcoded mapping since no blocks were loaded from mapping.json');
       blockMapping = {
         blocks: {
-          "minecraft:stone": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:dirt": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:grass_block": { id: 7, hytopiaBlock: "grass", textureUri: "blocks/grass.png" },
-          "minecraft:oak_planks": { id: 16, hytopiaBlock: "oak-planks", textureUri: "blocks/oak-planks.png" },
-          "minecraft:oak_log": { id: 11, hytopiaBlock: "log-side", textureUri: "blocks/log-side.png" },
-          "minecraft:glass": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:stone": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:dirt": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:grass_block": { id: 16, hytopiaBlock: "grass", textureUri: "blocks/grass.png" },
+          "minecraft:oak_planks": { id: 28, hytopiaBlock: "oak-planks", textureUri: "blocks/oak-planks.png" },
+          "minecraft:oak_log": { id: 23, hytopiaBlock: "log", textureUri: "blocks/log.png" },
+          "minecraft:glass": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
           "minecraft:bricks": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
-          "minecraft:black_wool": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:white_wool": { id: 22, hytopiaBlock: "water-still", textureUri: "blocks/water-still.png" },
+          "minecraft:black_wool": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:white_wool": { id: 43, hytopiaBlock: "water-still", textureUri: "blocks/water-still.png" },
           "minecraft:red_wool": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
-          "minecraft:brown_wool": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:brown_concrete": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:white_concrete": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
-          "minecraft:black_concrete": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:white_concrete_powder": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
-          "minecraft:coal_block": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" }
+          "minecraft:brown_wool": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:brown_concrete": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:white_concrete": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:black_concrete": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:white_concrete_powder": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:coal_block": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" }
         }
       };
       console.log(`Using hardcoded mapping with ${Object.keys(blockMapping.blocks).length} block definitions`);
@@ -438,15 +438,15 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
           
           // Create a more specific mapping for colored blocks commonly found in schematics
           const specialBlockMapping = {
-            'minecraft:black_wool': { id: 19, name: "stone" },
-            'minecraft:black_concrete': { id: 19, name: "stone" },
-            'minecraft:brown_wool': { id: 4, name: "dirt" },
-            'minecraft:brown_concrete': { id: 4, name: "dirt" },
-            'minecraft:white_wool': { id: 6, name: "glass" },
-            'minecraft:white_concrete': { id: 6, name: "glass" },
-            'minecraft:white_concrete_powder': { id: 6, name: "glass" },
+            'minecraft:black_wool': { id: 37, name: "stone" },
+            'minecraft:black_concrete': { id: 37, name: "stone" },
+            'minecraft:brown_wool': { id: 8, name: "dirt" },
+            'minecraft:brown_concrete': { id: 8, name: "dirt" },
+            'minecraft:white_wool': { id: 14, name: "glass" },
+            'minecraft:white_concrete': { id: 14, name: "glass" },
+            'minecraft:white_concrete_powder': { id: 14, name: "glass" },
             'minecraft:red_wool': { id: 1, name: "bricks" },
-            'minecraft:coal_block': { id: 19, name: "stone" }
+            'minecraft:coal_block': { id: 37, name: "stone" }
           };
           
           // Process BlockData

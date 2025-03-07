@@ -48,24 +48,23 @@ let dynamicBlockTypes = [];
 
 // Define default fallback blocks for common categories
 const fallbackMapping = {
-    // Generic fallbacks for common block types
-    "stone": { id: 19, name: "stone", textureUri: "blocks/stone.png" },
-    "cobblestone": { id: 13, name: "mossy-coblestone", textureUri: "blocks/mossy-coblestone.png" },
+    "stone": { id: 37, name: "stone", textureUri: "blocks/stone.png" },
+    "cobblestone": { id: 24, name: "mossy-coblestone", textureUri: "blocks/mossy-coblestone.png" },
     "brick": { id: 1, name: "bricks", textureUri: "blocks/bricks.png" },
-    "wood": { id: 11, name: "log-side", textureUri: "blocks/log-side.png" },
-    "log": { id: 12, name: "log-top", textureUri: "blocks/log-top.png" },
-    "planks": { id: 16, name: "oak-planks", textureUri: "blocks/oak-planks.png" },
-    "dirt": { id: 4, name: "dirt", textureUri: "blocks/dirt.png" },
-    "grass": { id: 7, name: "grass", textureUri: "blocks/grass.png" },
-    "sand": { id: 17, name: "sand", textureUri: "blocks/sand.png" },
-    "leaves": { id: 15, name: "oak-leaves", textureUri: "blocks/oak-leaves.png" },
-    "glass": { id: 6, name: "glass", textureUri: "blocks/glass.png" },
-    "ice": { id: 9, name: "ice", textureUri: "blocks/ice.png" },
-    "water": { id: 22, name: "water-still", textureUri: "blocks/water-still.png" },
-    "ore": { id: 3, name: "diamond-ore", textureUri: "blocks/diamond-ore.png" },
+    "wood": { id: 23, name: "log", textureUri: "blocks/log.png" },
+    "log": { id: 23, name: "log", textureUri: "blocks/log.png" },
+    "planks": { id: 28, name: "oak-planks", textureUri: "blocks/oak-planks.png" },
+    "dirt": { id: 8, name: "dirt", textureUri: "blocks/dirt.png" },
+    "grass": { id: 16, name: "grass", textureUri: "blocks/grass.png" },
+    "sand": { id: 30, name: "sand", textureUri: "blocks/sand.png" },
+    "leaves": { id: 27, name: "oak-leaves", textureUri: "blocks/oak-leaves.png" },
+    "glass": { id: 14, name: "glass", textureUri: "blocks/glass.png" },
+    "ice": { id: 18, name: "ice", textureUri: "blocks/ice.png" },
+    "water": { id: 43, name: "water-still", textureUri: "blocks/water-still.png" },
+    "ore": { id: 7, name: "diamond-ore", textureUri: "blocks/diamond-ore.png" },
     "clay": { id: 2, name: "clay", textureUri: "blocks/clay.png" },
-    "gravel": { id: 8, name: "gravel", textureUri: "blocks/gravel.png" },
-    "unknown": { id: 19, name: "stone", textureUri: "blocks/stone.png" } // Default fallback
+    "gravel": { id: 17, name: "gravel", textureUri: "blocks/gravel.png" },
+    "unknown": { id: 37, name: "stone", textureUri: "blocks/stone.png" } // Default fallback
 };
 
 function getDynamicBlockId(blockName) {
