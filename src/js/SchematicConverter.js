@@ -45,18 +45,67 @@ const fallbackMapping = {
 // Load block mapping file from a fetch request
 export async function loadBlockMapping(mappingUrl = '/mapping.json') {
   try {
-    console.log(`Attempting to load block mapping from: ${mappingUrl}`);
-    const response = await fetch(mappingUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to load mapping file: ${response.status} ${response.statusText}`);
+    // Ensure the URL is properly formatted
+    let fullUrl = mappingUrl;
+    if (!fullUrl.startsWith('http') && !fullUrl.startsWith('/')) {
+      fullUrl = '/' + fullUrl;
     }
+    
+    console.log(`Attempting to load block mapping from: ${fullUrl}`);
+    
+    // Try several approaches to load the mapping file
+    let response;
+    try {
+      // First attempt with the provided URL
+      response = await fetch(fullUrl);
+      if (!response.ok) {
+        // If that fails, try with the absolute path from the root
+        console.log(`Trying alternative path: /mapping.json`);
+        response = await fetch('/mapping.json');
+      }
+    } catch (err) {
+      // If fetch fails completely, try with a relative path
+      console.log(`Fetch failed, trying with relative path: ./mapping.json`);
+      response = await fetch('./mapping.json');
+    }
+    
+    if (!response || !response.ok) {
+      throw new Error(`Failed to load mapping file: ${response ? response.status + ' ' + response.statusText : 'No response'}`);
+    }
+    
     const mappingData = await response.json();
     console.log(`Successfully loaded mapping with ${Object.keys(mappingData.blocks || {}).length} block definitions`);
+    
+    // Debug the content of the loaded mapping
+    console.log('First few block mappings:', 
+      Object.entries(mappingData.blocks || {}).slice(0, 3)
+        .map(([name, data]) => `${name} -> ID ${data.id}`).join(', '));
+    
     return mappingData;
   } catch (error) {
     console.error(`Error loading block mapping file: ${error.message}`);
     console.log('Using default fallback mappings');
-    return { blocks: {} };
+    // Instead of returning an empty object, return a minimal mapping for common blocks
+    return { 
+      blocks: {
+        "minecraft:stone": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+        "minecraft:dirt": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+        "minecraft:grass_block": { id: 7, hytopiaBlock: "grass", textureUri: "blocks/grass.png" },
+        "minecraft:oak_planks": { id: 16, hytopiaBlock: "oak-planks", textureUri: "blocks/oak-planks.png" },
+        "minecraft:oak_log": { id: 11, hytopiaBlock: "log", textureUri: "blocks/log.png" },
+        "minecraft:glass": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+        "minecraft:bricks": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
+        "minecraft:black_wool": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+        "minecraft:white_wool": { id: 22, hytopiaBlock: "water-still", textureUri: "blocks/water-still.png" },
+        "minecraft:red_wool": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
+        "minecraft:brown_wool": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+        "minecraft:brown_concrete": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+        "minecraft:white_concrete": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+        "minecraft:black_concrete": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+        "minecraft:white_concrete_powder": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+        "minecraft:coal_block": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" }
+      }
+    };
   }
 }
 
@@ -93,8 +142,34 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     console.log(`Importing schematic file: ${file.name}`);
     
     // First try to use the mapping.json file
-    const blockMapping = await loadBlockMapping(mappingUrl);
+    let blockMapping = await loadBlockMapping(mappingUrl);
     console.log(`Loaded mapping with ${Object.keys(blockMapping.blocks || {}).length} block definitions`);
+
+    // If we didn't get any block definitions, use a hardcoded mapping for common blocks
+    if (!blockMapping.blocks || Object.keys(blockMapping.blocks).length === 0) {
+      console.log('Using hardcoded mapping since no blocks were loaded from mapping.json');
+      blockMapping = {
+        blocks: {
+          "minecraft:stone": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:dirt": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:grass_block": { id: 7, hytopiaBlock: "grass", textureUri: "blocks/grass.png" },
+          "minecraft:oak_planks": { id: 16, hytopiaBlock: "oak-planks", textureUri: "blocks/oak-planks.png" },
+          "minecraft:oak_log": { id: 11, hytopiaBlock: "log-side", textureUri: "blocks/log-side.png" },
+          "minecraft:glass": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:bricks": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
+          "minecraft:black_wool": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:white_wool": { id: 22, hytopiaBlock: "water-still", textureUri: "blocks/water-still.png" },
+          "minecraft:red_wool": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
+          "minecraft:brown_wool": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:brown_concrete": { id: 4, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
+          "minecraft:white_concrete": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:black_concrete": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
+          "minecraft:white_concrete_powder": { id: 6, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
+          "minecraft:coal_block": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" }
+        }
+      };
+      console.log(`Using hardcoded mapping with ${Object.keys(blockMapping.blocks).length} block definitions`);
+    }
 
     // Read the file as ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
@@ -141,7 +216,7 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     if (schematic.Palette && schematic.BlockData) {
       formatType = "modern_worldedit"; // Westerkerk style
     } 
-    // Check for nested modern WorldEdit format (as in plague doctor)
+    // Check for nested modern WorldEdit format
     else if (schematic.Blocks?.value?.Palette) {
       formatType = "modern_worldedit_nested"; 
     } 
@@ -316,7 +391,7 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
         break;
         
       case "modern_worldedit_nested":
-        // Handle plague doctor-style format (nested modern WorldEdit format)
+        // Handle nested modern WorldEdit format
         try {
           console.log("Processing nested modern WorldEdit format");
           
@@ -360,6 +435,19 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
           // Debug the first few entries of paletteIdToName
           console.log("First few paletteIdToName entries:", 
             Object.entries(paletteIdToName).slice(0, 5).map(([id, name]) => `${id}:${name}`).join(", "));
+          
+          // Create a more specific mapping for colored blocks commonly found in schematics
+          const specialBlockMapping = {
+            'minecraft:black_wool': { id: 19, name: "stone" },
+            'minecraft:black_concrete': { id: 19, name: "stone" },
+            'minecraft:brown_wool': { id: 4, name: "dirt" },
+            'minecraft:brown_concrete': { id: 4, name: "dirt" },
+            'minecraft:white_wool': { id: 6, name: "glass" },
+            'minecraft:white_concrete': { id: 6, name: "glass" },
+            'minecraft:white_concrete_powder': { id: 6, name: "glass" },
+            'minecraft:red_wool': { id: 1, name: "bricks" },
+            'minecraft:coal_block': { id: 19, name: "stone" }
+          };
           
           // Process BlockData
           let blockIndex = 0;
@@ -405,8 +493,13 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                     // Convert to HYTOPIA block ID
                     let hytopiaBlockId;
                     
-                    // Try to find in mapping - exact match first
-                    if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+                    // First check our specialized block mapping
+                    if (specialBlockMapping[blockName]) {
+                      hytopiaBlockId = specialBlockMapping[blockName].id;
+                      console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} (specialized mapping)`);
+                    }
+                    // If not found, try in the standard mapping
+                    else if (blockMapping.blocks && blockMapping.blocks[blockName]) {
                       hytopiaBlockId = blockMapping.blocks[blockName].id;
                       console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
                     } else {
