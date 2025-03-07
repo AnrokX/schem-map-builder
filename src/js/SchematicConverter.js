@@ -171,10 +171,11 @@ function getFallbackBlockId(blockName) {
 }
 
 // Helper function to process blocks in chunks
-async function processBlocksInChunks(blockData, width, height, length, offsetX, offsetY, offsetZ, paletteIdToName, blockMapping, chunkSize = 10000) {
+async function processBlocksInChunks(blockData, width, height, length, offsetX, offsetY, offsetZ, paletteIdToName, blockMapping, chunkSize = 1000) {
   const blocks = {};
   const totalBlocks = blockData.length;
   let blockIndex = 0;
+  let lastProgressLog = 0;
 
   return new Promise((resolve) => {
     function processChunk() {
@@ -231,9 +232,18 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
         blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
       }
 
+      // Log progress every 10%
+      const progress = Math.floor((blockIndex / totalBlocks) * 100);
+      if (progress >= lastProgressLog + 10) {
+        console.log(`Import progress: ${progress}%`);
+        lastProgressLog = progress;
+      }
+
       if (blockIndex < totalBlocks) {
-        setTimeout(processChunk, 0);
+        // Use requestAnimationFrame instead of setTimeout for smoother UI
+        requestAnimationFrame(processChunk);
       } else {
+        console.log('Import complete: 100%');
         resolve(blocks);
       }
     }
