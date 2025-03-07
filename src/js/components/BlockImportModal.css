@@ -481,6 +481,49 @@
   white-space: nowrap;
 }
 
+/* Region validation and boundary styles */
+.region-note {
+  font-style: italic;
+  color: #777;
+  font-size: 13px !important;
+}
+
+.boundary-info {
+  background-color: #252525;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 15px;
+}
+
+.boundary-info p {
+  margin: 5px 0;
+  font-size: 13px;
+  color: #bbb;
+}
+
+.validation-error {
+  background-color: rgba(211, 47, 47, 0.1);
+  color: #ff5252;
+  border-left: 3px solid #d32f2f;
+  padding: 8px 12px;
+  margin-bottom: 15px;
+  font-size: 14px;
+  border-radius: 4px;
+}
+
+/* Update input validation styles */
+.coordinate-input input:invalid {
+  border-color: #d32f2f;
+  background-color: rgba(211, 47, 47, 0.1);
+}
+
+.coordinate-input input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .block-import-modal {
