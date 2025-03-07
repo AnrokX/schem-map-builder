@@ -12,6 +12,8 @@ import {
 } from '../ImportExport';
 import { importSchematic } from '../SchematicConverter';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
+import BlockImportModal from './BlockImportModal';
+
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, setGridSize, undoRedoManager, currentBlockType, environmentBuilderRef }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
 	const [showDimensionsModal, setShowDimensionsModal] = useState(false);
@@ -23,9 +25,9 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	const [showGridSizeModal, setShowGridSizeModal] = useState(false);
 	const [showBorderModal, setShowBorderModal] = useState(false);
 	const [borderDimensions, setBorderDimensions] = useState({
-		width: 1,
-		length: 1,
-		height: 1,
+		width: 20,
+		length: 20,
+		height: 10,
 	});
 	const [showTerrainModal, setShowTerrainModal] = useState(false);
 	const [terrainSettings, setTerrainSettings] = useState({
@@ -36,6 +38,8 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		roughness: 85,
 		clearMap: false,
 	});
+	const [showBlockImportModal, setShowBlockImportModal] = useState(false);
+	const [importModalData, setImportModalData] = useState(null);
 
 	// Add state for undo/redo button availability
 	const [canUndo, setCanUndo] = useState(true);
@@ -345,30 +349,37 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					}
 					
 					if (result && result.success) {
-						// Show success message with block count
-						const blockCount = result.blockCount || 'multiple';
-						const successMsg = document.createElement('div');
-						successMsg.id = 'schematic-success-message';
-						successMsg.className = 'success-message';
-						successMsg.innerText = `Schematic imported successfully! ${blockCount} blocks placed.`;
-						successMsg.style.position = 'fixed';
-						successMsg.style.top = '20px';
-						successMsg.style.left = '50%';
-						successMsg.style.transform = 'translateX(-50%)';
-						successMsg.style.padding = '10px 20px';
-						successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
-						successMsg.style.color = 'white';
-						successMsg.style.borderRadius = '5px';
-						successMsg.style.zIndex = '1000';
-						document.body.appendChild(successMsg);
-						
-						// Remove success message after 3 seconds
-						setTimeout(() => {
-							const successEl = document.getElementById('schematic-success-message');
-							if (successEl && successEl.parentNode) {
-								successEl.parentNode.removeChild(successEl);
-							}
-						}, 3000);
+						// Check if we need to show the import modal for unmapped blocks
+						if (result.requiresUserInput && result.unmappedBlocks) {
+							// Store the import data and show the modal
+							setImportModalData(result);
+							setShowBlockImportModal(true);
+						} else {
+							// Show success message with block count
+							const blockCount = result.blockCount || 'multiple';
+							const successMsg = document.createElement('div');
+							successMsg.id = 'schematic-success-message';
+							successMsg.className = 'success-message';
+							successMsg.innerText = `Schematic imported successfully! ${blockCount} blocks placed.`;
+							successMsg.style.position = 'fixed';
+							successMsg.style.top = '20px';
+							successMsg.style.left = '50%';
+							successMsg.style.transform = 'translateX(-50%)';
+							successMsg.style.padding = '10px 20px';
+							successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
+							successMsg.style.color = 'white';
+							successMsg.style.borderRadius = '5px';
+							successMsg.style.zIndex = '1000';
+							document.body.appendChild(successMsg);
+							
+							// Remove success message after 3 seconds
+							setTimeout(() => {
+								const successEl = document.getElementById('schematic-success-message');
+								if (successEl && successEl.parentNode) {
+									successEl.parentNode.removeChild(successEl);
+								}
+							}, 3000);
+						}
 					}
 				})
 				.catch(error => {
@@ -415,6 +426,34 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		if (e.target.className === 'modal-overlay') {
 			setModalVisibility(false);
 		}
+	};
+
+	// Handle the import modal completion
+	const handleImportComplete = (result) => {
+		// Show success message with block count
+		const blockCount = result.blockCount || 'multiple';
+		const successMsg = document.createElement('div');
+		successMsg.id = 'schematic-success-message';
+		successMsg.className = 'success-message';
+		successMsg.innerText = `Schematic imported successfully! ${blockCount} blocks placed.`;
+		successMsg.style.position = 'fixed';
+		successMsg.style.top = '20px';
+		successMsg.style.left = '50%';
+		successMsg.style.transform = 'translateX(-50%)';
+		successMsg.style.padding = '10px 20px';
+		successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
+		successMsg.style.color = 'white';
+		successMsg.style.borderRadius = '5px';
+		successMsg.style.zIndex = '1000';
+		document.body.appendChild(successMsg);
+		
+		// Remove success message after 3 seconds
+		setTimeout(() => {
+			const successEl = document.getElementById('schematic-success-message');
+			if (successEl && successEl.parentNode) {
+				successEl.parentNode.removeChild(successEl);
+			}
+		}, 3000);
 	};
 
 	return (
@@ -883,6 +922,17 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 						</div>
 					</div>
 				</div>
+			)}
+
+			{showBlockImportModal && (
+				<BlockImportModal
+					isOpen={showBlockImportModal}
+					onClose={() => setShowBlockImportModal(false)}
+					unmappedBlocks={importModalData?.unmappedBlocks}
+					temporaryBlockMap={importModalData?.temporaryBlockMap}
+					terrainBuilderRef={importModalData?.terrainBuilderRef}
+					onImportComplete={handleImportComplete}
+				/>
 			)}
 		</>
 	);

@@ -3,8 +3,63 @@ import * as nbt from 'prismarine-nbt';
 import pako from 'pako';
 import { Buffer } from 'buffer';
 
-// Track dynamic block mappings for unmapped blocks
-let dynamicBlockMappings = new Map();
+// Global map to track dynamic block mappings for the session
+const dynamicBlockMappings = new Map();
+
+// Use this to define fallback block mappings based on name components
+const fallbackMapping = {
+  unknown: { id: 37, name: "stone" },
+  stone: { id: 37, name: "stone" },
+  dirt: { id: 8, name: "dirt" },
+  grass: { id: 16, name: "grass" },
+  planks: { id: 28, name: "oak-planks" },
+  log: { id: 23, name: "log" },
+  leaves: { id: 22, name: "leaves" },
+  glass: { id: 14, name: "glass" },
+  wool: { id: 43, name: "water-still" },
+  terracotta: { id: 37, name: "stone" },
+  concrete: { id: 37, name: "stone" },
+  ore: { id: 24, name: "ore" },
+  sand: { id: 34, name: "sand" },
+  water: { id: 43, name: "water-still" },
+  wood: { id: 28, name: "oak-planks" },
+  brick: { id: 1, name: "bricks" }
+};
+
+// Create a tracker for unmapped blocks
+const unmappedBlockTracker = {
+  blocks: {},  // Will hold info about each unmapped block type
+  
+  // Track an unmapped block
+  trackBlock: function(blockName, position, fallbackId) {
+    // Create entry if it doesn't exist
+    if (!this.blocks[blockName]) {
+      this.blocks[blockName] = {
+        count: 0,
+        positions: [],
+        fallbackId: fallbackId
+      };
+    }
+    
+    // Increment counter
+    this.blocks[blockName].count++;
+    
+    // Store sample positions (up to 5)
+    if (this.blocks[blockName].positions.length < 5) {
+      this.blocks[blockName].positions.push(position);
+    }
+  },
+  
+  // Check if we have any unmapped blocks
+  hasUnmappedBlocks: function() {
+    return Object.keys(this.blocks).length > 0;
+  },
+  
+  // Reset the tracker
+  reset: function() {
+    this.blocks = {};
+  }
+};
 
 // Manual gzip header detection and decompression fallback
 function isGzipped(data) {
@@ -20,27 +75,6 @@ function decompressGzip(data) {
     throw new Error('Failed to decompress gzipped data. The schematic file may be corrupted.');
   }
 }
-
-// Define default fallback blocks for common categories
-const fallbackMapping = {
-  "stone": { id: 37, name: "stone", textureUri: "blocks/stone.png" },
-  "cobblestone": { id: 24, name: "mossy-coblestone", textureUri: "blocks/mossy-coblestone.png" },
-  "brick": { id: 1, name: "bricks", textureUri: "blocks/bricks.png" },
-  "wood": { id: 23, name: "log", textureUri: "blocks/log.png" },
-  "log": { id: 23, name: "log", textureUri: "blocks/log.png" },
-  "planks": { id: 28, name: "oak-planks", textureUri: "blocks/oak-planks.png" },
-  "dirt": { id: 8, name: "dirt", textureUri: "blocks/dirt.png" },
-  "grass": { id: 16, name: "grass", textureUri: "blocks/grass.png" },
-  "sand": { id: 30, name: "sand", textureUri: "blocks/sand.png" },
-  "leaves": { id: 27, name: "oak-leaves", textureUri: "blocks/oak-leaves.png" },
-  "glass": { id: 14, name: "glass", textureUri: "blocks/glass.png" },
-  "ice": { id: 18, name: "ice", textureUri: "blocks/ice.png" },
-  "water": { id: 43, name: "water-still", textureUri: "blocks/water-still.png" },
-  "ore": { id: 7, name: "diamond-ore", textureUri: "blocks/diamond-ore.png" },
-  "clay": { id: 2, name: "clay", textureUri: "blocks/clay.png" },
-  "gravel": { id: 17, name: "gravel", textureUri: "blocks/gravel.png" },
-  "unknown": { id: 37, name: "stone", textureUri: "blocks/stone.png" } // Default fallback
-};
 
 // Load block mapping file from a fetch request
 export async function loadBlockMapping(mappingUrl = '/mapping.json') {
@@ -140,6 +174,9 @@ function getFallbackBlockId(blockName) {
 export async function importSchematic(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json') {
   try {
     console.log(`Importing schematic file: ${file.name}`);
+    
+    // Reset the unmapped block tracker
+    unmappedBlockTracker.reset();
     
     // First try to use the mapping.json file
     let blockMapping = await loadBlockMapping(mappingUrl);
@@ -340,6 +377,7 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                 if (blockName && blockName !== 'minecraft:air') {
                   // Convert to HYTOPIA block ID
                   let hytopiaBlockId;
+                  let isUnmappedBlock = false;
                   
                   // Try to find in mapping - exact match first
                   if (blockMapping.blocks && blockMapping.blocks[blockName]) {
@@ -360,6 +398,9 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                       // Use fallback mapping as last resort
                       hytopiaBlockId = getFallbackBlockId(blockName);
                       console.log(`Used fallback mapping for ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
+                      
+                      // Track this as an unmapped block
+                      isUnmappedBlock = true;
                     }
                   }
                   
@@ -367,6 +408,8 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                   if (!hytopiaBlockId) {
                     hytopiaBlockId = fallbackMapping.unknown.id;
                     console.log(`Using default stone block for ${blockName} as last resort`);
+                    // Track this as an unmapped block
+                    isUnmappedBlock = true;
                   }
                   
                   // Add to terrain data with correct coordinates
@@ -374,6 +417,11 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                   const finalX = x - Math.floor(width / 2) + offsetX;
                   const finalY = y + offsetY;
                   const finalZ = z - Math.floor(length / 2) + offsetZ;
+                  
+                  // Track unmapped block if necessary
+                  if (isUnmappedBlock) {
+                    unmappedBlockTracker.trackBlock(blockName, `${finalX},${finalY},${finalZ}`, hytopiaBlockId);
+                  }
                   
                   hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
                   
@@ -766,6 +814,25 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
       throw new Error("No blocks were extracted from the schematic. The file may be empty or corrupted.");
     }
     
+    // Check if we have unmapped blocks that need user attention
+    if (unmappedBlockTracker.hasUnmappedBlocks()) {
+      console.log("Found unmapped blocks during import:", unmappedBlockTracker.blocks);
+      
+      // Create a temporary copy of the block map
+      const temporaryBlockMap = { ...hytopiaMap.blocks };
+      
+      // Return information needed for the modal
+      return { 
+        success: true, 
+        requiresUserInput: true,
+        temporaryBlockMap,
+        unmappedBlocks: unmappedBlockTracker.blocks,
+        terrainBuilderRef,
+        environmentBuilderRef,
+        blockCount: Object.keys(hytopiaMap.blocks).length 
+      };
+    }
+    
     // Save terrain data to IndexedDB
     await DatabaseManager.saveData(STORES.TERRAIN, "current", hytopiaMap.blocks);
     
@@ -780,6 +847,68 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     return { success: true, blockCount: Object.keys(hytopiaMap.blocks).length };
   } catch (error) {
     console.error('Error importing schematic:', error);
+    throw error;
+  }
+}
+
+// Function to finalize schematic import after user has made block choices
+export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks, blockDecisions, terrainBuilderRef) {
+  try {
+    console.log("Finalizing schematic import with user decisions:", blockDecisions);
+    
+    const finalBlockMap = { ...temporaryBlockMap };
+    
+    // Apply user decisions for each unmapped block
+    Object.keys(blockDecisions).forEach(blockName => {
+      const decision = blockDecisions[blockName];
+      const blockInfo = unmappedBlocks[blockName];
+      
+      if (!blockInfo) {
+        console.warn(`Block info not found for ${blockName}`);
+        return;
+      }
+      
+      // Process based on decision type
+      switch (decision.action) {
+        case 'useCustomTexture':
+          // Change all instances of this block to the custom block ID
+          Object.keys(finalBlockMap).forEach(pos => {
+            if (blockInfo.positions.includes(pos) || 
+                finalBlockMap[pos] === blockInfo.fallbackId) {
+              finalBlockMap[pos] = decision.customBlockId;
+            }
+          });
+          break;
+          
+        case 'useFallback':
+          // Keep fallback ID (no change needed)
+          break;
+          
+        case 'skip':
+          // Remove this block from the map
+          Object.keys(finalBlockMap).forEach(pos => {
+            if (blockInfo.positions.includes(pos) || 
+                finalBlockMap[pos] === blockInfo.fallbackId) {
+              delete finalBlockMap[pos];
+            }
+          });
+          break;
+      }
+    });
+    
+    // Save the final block map to the database
+    await DatabaseManager.saveData(STORES.TERRAIN, "current", finalBlockMap);
+    
+    // Refresh the terrain builder
+    if (terrainBuilderRef && terrainBuilderRef.current) {
+      await terrainBuilderRef.current.refreshTerrainFromDB();
+    }
+    
+    console.log("Schematic import finalized");
+    
+    return { success: true, blockCount: Object.keys(finalBlockMap).length };
+  } catch (error) {
+    console.error("Error finalizing schematic import:", error);
     throw error;
   }
 } 
