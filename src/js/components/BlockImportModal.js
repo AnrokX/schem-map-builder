@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { processCustomBlock, getBlockTypes } from '../TerrainBuilder';
 import { finalizeSchematicImport } from '../SchematicConverter';
-import { FaUpload, FaCheck, FaTimes, FaTrash, FaExchangeAlt } from 'react-icons/fa';
+import { FaUpload, FaTimes, FaTrash, FaExchangeAlt } from 'react-icons/fa';
 import Tooltip from './Tooltip';
-import BlockButton from './BlockButton';
 import './BlockImportModal.css';
 
 // Helper function to get block name for display
@@ -30,6 +29,7 @@ const BlockImportModal = ({
   const [previewImages, setPreviewImages] = useState({});
   const [selectedTab, setSelectedTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  // eslint-disable-next-line no-unused-vars
   const [progress, setProgress] = useState(0);
   const [availableBlocks, setAvailableBlocks] = useState([]);
   const [showBlockSelector, setShowBlockSelector] = useState(null);
@@ -222,9 +222,9 @@ const BlockImportModal = ({
     try {
       setLoading(true);
       
-      // Process blocks with progress updates
-      const totalBlocks = Object.keys(blockDecisions).length;
-      let processed = 0;
+      // These variables are for future progress tracking - not currently used
+      const totalBlocks = Object.keys(blockDecisions).length; // eslint-disable-line no-unused-vars
+      let processed = 0; // eslint-disable-line no-unused-vars
       
       // Finalize the import with all decisions
       const result = await finalizeSchematicImport(

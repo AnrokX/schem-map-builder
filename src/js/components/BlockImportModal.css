@@ -298,8 +298,93 @@
 }
 
 .confirm-button:disabled {
-  background-color: #666;
+  opacity: 0.5;
   cursor: not-allowed;
+  background-color: #555;
+}
+
+/* Region Selection Styles */
+.region-selection-container {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.use-full-map-toggle {
+  margin-bottom: 16px;
+}
+
+.use-full-map-toggle label {
+  display: flex;
+  align-items: center;
+  font-size: 1.05rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.use-full-map-toggle input {
+  margin-right: 10px;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.region-coordinates {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.coordinate-group {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.coordinate-group h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
+.coordinate-inputs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.coordinate-input {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 120px;
+}
+
+.coordinate-input label {
+  width: 60px;
+  font-weight: bold;
+}
+
+.coordinate-input input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  background-color: #333;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.region-stats {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 10px;
+}
+
+.region-stats p {
+  margin: 5px 0;
+  font-weight: bold;
 }
 
 /* Block Selector Modal */

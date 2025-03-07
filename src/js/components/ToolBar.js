@@ -10,9 +10,10 @@ import {
 	importMap,
 	importAssetPack
 } from '../ImportExport';
-import { importSchematic } from '../SchematicConverter';
+import { importSchematic, previewSchematic } from '../SchematicConverter';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 import BlockImportModal from './BlockImportModal';
+import RegionSelectionModal from './RegionSelectionModal';
 
 const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, setAxisLockEnabled, placementSize, setPlacementSize, setGridSize, undoRedoManager, currentBlockType, environmentBuilderRef }) => {
 	const [newGridSize, setNewGridSize] = useState(100);
@@ -40,6 +41,11 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	});
 	const [showBlockImportModal, setShowBlockImportModal] = useState(false);
 	const [importModalData, setImportModalData] = useState(null);
+	// Add state for region selection modal
+	const [showRegionSelectionModal, setShowRegionSelectionModal] = useState(false);
+	const [schematicFile, setSchematicFile] = useState(null);
+	const [schematicDimensions, setSchematicDimensions] = useState(null);
+	const [schematicCenterOffset, setSchematicCenterOffset] = useState(null);
 
 	// Add state for undo/redo button availability
 	const [canUndo, setCanUndo] = useState(true);
@@ -323,11 +329,14 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	const onSchematicFileSelected = (event) => {
 		console.log("Schematic file selected:", event.target.files[0]);
 		if (event.target.files && event.target.files[0]) {
-			// Show loading indicator or message
+			// Store the schematic file for later processing
+			setSchematicFile(event.target.files[0]);
+			
+			// Show loading indicator for initial schematic parsing
 			const loadingMessage = document.createElement('div');
 			loadingMessage.id = 'schematic-loading-message';
 			loadingMessage.className = 'loading-message';
-			loadingMessage.innerText = 'Importing schematic...';
+			loadingMessage.innerText = 'Parsing schematic...';
 			loadingMessage.style.position = 'fixed';
 			loadingMessage.style.top = '50%';
 			loadingMessage.style.left = '50%';
@@ -339,47 +348,28 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 			loadingMessage.style.zIndex = '1000';
 			document.body.appendChild(loadingMessage);
 			
-			// Import the schematic file
-			importSchematic(event.target.files[0], terrainBuilderRef, environmentBuilderRef)
-				.then(result => {
-					// Remove loading message safely
+			// First do a preliminary import to get the dimensions
+			previewSchematic(event.target.files[0])
+				.then(previewResult => {
+					// Remove loading message
 					const loadingEl = document.getElementById('schematic-loading-message');
 					if (loadingEl && loadingEl.parentNode) {
 						loadingEl.parentNode.removeChild(loadingEl);
 					}
 					
-					if (result && result.success) {
-						// Check if we need to show the import modal for unmapped blocks
-						if (result.requiresUserInput && result.unmappedBlocks) {
-							// Store the import data and show the modal
-							setImportModalData(result);
-							setShowBlockImportModal(true);
-						} else {
-							// Show success message with block count
-							const blockCount = result.blockCount || 'multiple';
-							const successMsg = document.createElement('div');
-							successMsg.id = 'schematic-success-message';
-							successMsg.className = 'success-message';
-							successMsg.innerText = `Schematic imported successfully! ${blockCount} blocks placed.`;
-							successMsg.style.position = 'fixed';
-							successMsg.style.top = '20px';
-							successMsg.style.left = '50%';
-							successMsg.style.transform = 'translateX(-50%)';
-							successMsg.style.padding = '10px 20px';
-							successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
-							successMsg.style.color = 'white';
-							successMsg.style.borderRadius = '5px';
-							successMsg.style.zIndex = '1000';
-							document.body.appendChild(successMsg);
-							
-							// Remove success message after 3 seconds
-							setTimeout(() => {
-								const successEl = document.getElementById('schematic-success-message');
-								if (successEl && successEl.parentNode) {
-									successEl.parentNode.removeChild(successEl);
-								}
-							}, 3000);
-						}
+					if (previewResult && previewResult.dimensions) {
+						console.log("Schematic dimensions:", previewResult.dimensions);
+						console.log("Center offset:", previewResult.centerOffset);
+						
+						// Store dimensions and center offset for the region selection modal
+						setSchematicDimensions(previewResult.dimensions);
+						setSchematicCenterOffset(previewResult.centerOffset);
+						
+						// Show the region selection modal
+						setShowRegionSelectionModal(true);
+					} else {
+						// If we couldn't get dimensions, just proceed with normal import
+						processSchematicImport(event.target.files[0], null);
 					}
 				})
 				.catch(error => {
@@ -390,34 +380,122 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					}
 					
 					// Show error message
-					const errorMsg = document.createElement('div');
-					errorMsg.id = 'schematic-error-message';
-					errorMsg.className = 'error-message';
-					errorMsg.innerText = `Error importing schematic: ${error.message}`;
-					errorMsg.style.position = 'fixed';
-					errorMsg.style.top = '20px';
-					errorMsg.style.left = '50%';
-					errorMsg.style.transform = 'translateX(-50%)';
-					errorMsg.style.padding = '10px 20px';
-					errorMsg.style.background = 'rgba(255, 0, 0, 0.8)';
-					errorMsg.style.color = 'white';
-					errorMsg.style.borderRadius = '5px';
-					errorMsg.style.zIndex = '1000';
-					errorMsg.style.maxWidth = '80%';
-					errorMsg.style.textAlign = 'center';
-					document.body.appendChild(errorMsg);
-					
-					// Remove error message after 5 seconds
-					setTimeout(() => {
-						const errorEl = document.getElementById('schematic-error-message');
-						if (errorEl && errorEl.parentNode) {
-							errorEl.parentNode.removeChild(errorEl);
-						}
-					}, 5000);
-					
-					console.error('Error importing schematic:', error);
+					showErrorMessage(`Error parsing schematic: ${error.message}`);
+					console.error('Error parsing schematic:', error);
 				});
 		}
+	};
+	
+	// Function to handle region selection
+	const handleRegionSelection = (regionSelection) => {
+		console.log("Selected region:", regionSelection);
+		processSchematicImport(schematicFile, regionSelection);
+	};
+	
+	// Function to handle the actual import process
+	const processSchematicImport = (file, regionSelection) => {
+		// Show loading indicator for the actual import
+		const loadingMessage = document.createElement('div');
+		loadingMessage.id = 'schematic-loading-message';
+		loadingMessage.className = 'loading-message';
+		loadingMessage.innerText = 'Importing schematic...';
+		loadingMessage.style.position = 'fixed';
+		loadingMessage.style.top = '50%';
+		loadingMessage.style.left = '50%';
+		loadingMessage.style.transform = 'translate(-50%, -50%)';
+		loadingMessage.style.padding = '20px';
+		loadingMessage.style.background = 'rgba(0, 0, 0, 0.8)';
+		loadingMessage.style.color = 'white';
+		loadingMessage.style.borderRadius = '5px';
+		loadingMessage.style.zIndex = '1000';
+		document.body.appendChild(loadingMessage);
+		
+		// Import the schematic file with the selected region
+		importSchematic(file, terrainBuilderRef, environmentBuilderRef, '/mapping.json', regionSelection)
+			.then(result => {
+				// Remove loading message safely
+				const loadingEl = document.getElementById('schematic-loading-message');
+				if (loadingEl && loadingEl.parentNode) {
+					loadingEl.parentNode.removeChild(loadingEl);
+				}
+				
+				if (result && result.success) {
+					// Check if we need to show the import modal for unmapped blocks
+					if (result.requiresUserInput && result.unmappedBlocks) {
+						// Store the import data and show the modal
+						setImportModalData(result);
+						setShowBlockImportModal(true);
+					} else {
+						// Show success message with block count
+						showSuccessMessage(`Schematic imported successfully! ${result.blockCount || 'Multiple'} blocks placed.`);
+					}
+				}
+			})
+			.catch(error => {
+				// Remove loading message safely
+				const loadingEl = document.getElementById('schematic-loading-message');
+				if (loadingEl && loadingEl.parentNode) {
+					loadingEl.parentNode.removeChild(loadingEl);
+				}
+				
+				// Show error message
+				showErrorMessage(`Error importing schematic: ${error.message}`);
+				console.error('Error importing schematic:', error);
+			});
+	};
+	
+	// Helper function to show success message
+	const showSuccessMessage = (message) => {
+		const successMsg = document.createElement('div');
+		successMsg.id = 'schematic-success-message';
+		successMsg.className = 'success-message';
+		successMsg.innerText = message;
+		successMsg.style.position = 'fixed';
+		successMsg.style.top = '20px';
+		successMsg.style.left = '50%';
+		successMsg.style.transform = 'translateX(-50%)';
+		successMsg.style.padding = '10px 20px';
+		successMsg.style.background = 'rgba(0, 128, 0, 0.8)';
+		successMsg.style.color = 'white';
+		successMsg.style.borderRadius = '5px';
+		successMsg.style.zIndex = '1000';
+		document.body.appendChild(successMsg);
+		
+		// Remove success message after 3 seconds
+		setTimeout(() => {
+			const successEl = document.getElementById('schematic-success-message');
+			if (successEl && successEl.parentNode) {
+				successEl.parentNode.removeChild(successEl);
+			}
+		}, 3000);
+	};
+	
+	// Helper function to show error message
+	const showErrorMessage = (message) => {
+		const errorMsg = document.createElement('div');
+		errorMsg.id = 'schematic-error-message';
+		errorMsg.className = 'error-message';
+		errorMsg.innerText = message;
+		errorMsg.style.position = 'fixed';
+		errorMsg.style.top = '20px';
+		errorMsg.style.left = '50%';
+		errorMsg.style.transform = 'translateX(-50%)';
+		errorMsg.style.padding = '10px 20px';
+		errorMsg.style.background = 'rgba(255, 0, 0, 0.8)';
+		errorMsg.style.color = 'white';
+		errorMsg.style.borderRadius = '5px';
+		errorMsg.style.zIndex = '1000';
+		errorMsg.style.maxWidth = '80%';
+		errorMsg.style.textAlign = 'center';
+		document.body.appendChild(errorMsg);
+		
+		// Remove error message after 5 seconds
+		setTimeout(() => {
+			const errorEl = document.getElementById('schematic-error-message');
+			if (errorEl && errorEl.parentNode) {
+				errorEl.parentNode.removeChild(errorEl);
+			}
+		}, 5000);
 	};
 
 	// Add a handler for modal overlay clicks
@@ -924,14 +1002,25 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 				</div>
 			)}
 
-			{showBlockImportModal && (
+			{showBlockImportModal && importModalData && (
 				<BlockImportModal
 					isOpen={showBlockImportModal}
 					onClose={() => setShowBlockImportModal(false)}
-					unmappedBlocks={importModalData?.unmappedBlocks}
-					temporaryBlockMap={importModalData?.temporaryBlockMap}
-					terrainBuilderRef={importModalData?.terrainBuilderRef}
+					unmappedBlocks={importModalData.unmappedBlocks}
+					temporaryBlockMap={importModalData.temporaryBlockMap}
+					terrainBuilderRef={terrainBuilderRef}
 					onImportComplete={handleImportComplete}
+				/>
+			)}
+			
+			{/* Add Region Selection Modal */}
+			{showRegionSelectionModal && (
+				<RegionSelectionModal
+					isOpen={showRegionSelectionModal}
+					onClose={() => setShowRegionSelectionModal(false)}
+					onSelectRegion={handleRegionSelection}
+					dimensions={schematicDimensions}
+					centerOffset={schematicCenterOffset}
 				/>
 			)}
 		</>
