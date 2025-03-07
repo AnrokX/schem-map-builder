@@ -196,6 +196,8 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
         if (blockName === 'minecraft:air') continue;
 
         let hytopiaBlockId;
+        let isUnmappedBlock = false;
+
         if (blockMapping.blocks && blockMapping.blocks[blockName]) {
           hytopiaBlockId = blockMapping.blocks[blockName].id;
         } else {
@@ -208,16 +210,23 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
             hytopiaBlockId = blockMapping.blocks[baseName].id;
           } else {
             hytopiaBlockId = getFallbackBlockId(blockName);
+            isUnmappedBlock = true;
           }
         }
 
         if (!hytopiaBlockId) {
           hytopiaBlockId = fallbackMapping.unknown.id;
+          isUnmappedBlock = true;
         }
 
         const finalX = x - Math.floor(width / 2) + offsetX;
         const finalY = y + offsetY;
         const finalZ = z - Math.floor(length / 2) + offsetZ;
+        
+        // Track unmapped block if necessary
+        if (isUnmappedBlock) {
+          unmappedBlockTracker.trackBlock(blockName, `${finalX},${finalY},${finalZ}`, hytopiaBlockId);
+        }
         
         blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
       }
