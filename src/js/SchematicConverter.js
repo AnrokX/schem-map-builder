@@ -171,12 +171,22 @@ function getFallbackBlockId(blockName) {
 }
 
 // Main function to handle schematic file import
-export async function importSchematic(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json') {
+export async function importSchematic(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json', regionSelection = null) {
   try {
     console.log(`Importing schematic file: ${file.name}`);
     
+    // Region selection validation
+    if (regionSelection) {
+      console.log(`Using region selection: min(${regionSelection.minX}, ${regionSelection.minY}, ${regionSelection.minZ}), max(${regionSelection.maxX}, ${regionSelection.maxY}, ${regionSelection.maxZ})`);
+    } else {
+      console.log('Importing entire schematic (no region selection)');
+    }
+    
     // Reset the unmapped block tracker
     unmappedBlockTracker.reset();
+    
+    // Initialize offset variables
+    let offsetX = 0, offsetY = 0, offsetZ = 0;
     
     // First try to use the mapping.json file
     let blockMapping = await loadBlockMapping(mappingUrl);
@@ -303,8 +313,77 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     // Variables for different formats
     let width, height, length, palette, blockData;
     
-    // Process the schematic based on its format
+    // Get the dimensions, palette, and block data based on the format type
     switch (formatType) {
+      case "classic":
+        // Handle classic format
+        width = schematic.Width?.value || 0;
+        height = schematic.Height?.value || 0;
+        length = schematic.Length?.value || 0;
+        
+        console.log(`Dimensions: ${width}x${height}x${length}`);
+        
+        // Remove duplicate variable declarations
+        const classicBlocks = schematic.Blocks?.value || [];
+        const classicData = schematic.Data?.value || []; // eslint-disable-line no-unused-vars
+        
+        // Classic format uses block IDs, we need a mapping from old IDs to names
+        const classicIdToNameMap = {
+          1: 'stone',
+          2: 'grass_block',
+          3: 'dirt',
+          4: 'cobblestone',
+          5: 'oak_planks',
+          17: 'oak_log',
+          18: 'oak_leaves',
+          20: 'glass',
+          45: 'bricks',
+          79: 'ice',
+          89: 'glowstone',
+          // Add more mappings as needed for commonly used blocks
+        };
+        
+        // Process blocks
+        for (let y = 0; y < height; y++) {
+          for (let z = 0; z < length; z++) {
+            for (let x = 0; x < width; x++) {
+              const index = y * width * length + z * width + x;
+              const blockId = classicBlocks[index];
+              
+              if (blockId !== 0) { // Skip air
+                // Get block name from classic ID
+                const blockName = classicIdToNameMap[blockId] || `unknown_${blockId}`;
+                
+                // Convert to HYTOPIA block ID
+                let hytopiaBlockId;
+                
+                // Try to find in mapping - try with minecraft: prefix first
+                if (blockMapping.blocks && blockMapping.blocks[`minecraft:${blockName}`]) {
+                  hytopiaBlockId = blockMapping.blocks[`minecraft:${blockName}`].id;
+                  console.log(`Mapped classic block ID ${blockId} (${blockName}) to HYTOPIA block ID ${hytopiaBlockId}`);
+                } else if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+                  // Try without prefix
+                  hytopiaBlockId = blockMapping.blocks[blockName].id;
+                  console.log(`Mapped classic block ID ${blockId} (${blockName}) to HYTOPIA block ID ${hytopiaBlockId}`);
+                } else {
+                  // Use fallback mapping
+                  hytopiaBlockId = getFallbackBlockId(blockName);
+                  console.log(`Used fallback mapping for classic block ID ${blockId} (${blockName}) to HYTOPIA block ID ${hytopiaBlockId}`);
+                }
+                
+                // Add to terrain data with correct coordinates
+                // Adjust coordinates to center the schematic
+                const finalX = x - Math.floor(width / 2);
+                const finalY = y;
+                const finalZ = z - Math.floor(length / 2);
+                
+                hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
+              }
+            }
+          }
+        }
+        break;
+        
       case "modern_worldedit":
         // Direct access for westerkerk-style format
         width = schematic.Width?.value || 0;
@@ -347,6 +426,12 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
           console.log("Sample paletteIdToName entries:", 
             Object.entries(paletteIdToName).slice(0, 3).map(([id, name]) => `${id}:${name}`).join(", "));
         }
+        
+        // Debug palettes for first few entries
+        const paletteEntries = Object.keys(paletteIdToName).slice(0, 3);
+        console.log("Sample palette entries:", paletteEntries);
+        // Data might be used in future implementation
+        const paletteData = blockData?.slice(0, 10); // eslint-disable-line no-unused-vars
         
         // Process BlockData
         let blockIndex = 0;
@@ -417,6 +502,15 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                   const finalX = x - Math.floor(width / 2) + offsetX;
                   const finalY = y + offsetY;
                   const finalZ = z - Math.floor(length / 2) + offsetZ;
+                  
+                  // Skip this block if it's outside the selected region
+                  if (regionSelection) {
+                    if (finalX < regionSelection.minX || finalX > regionSelection.maxX ||
+                        finalY < regionSelection.minY || finalY > regionSelection.maxY ||
+                        finalZ < regionSelection.minZ || finalZ > regionSelection.maxZ) {
+                      continue; // Skip this block
+                    }
+                  }
                   
                   // Track unmapped block if necessary
                   if (isUnmappedBlock) {
@@ -639,7 +733,7 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
         console.log(`Dimensions: ${width}x${height}x${length}`);
         
         const blocks = schematic.Blocks?.value || [];
-        const data = schematic.Data?.value || [];
+        const data = schematic.Data?.value || []; // eslint-disable-line no-unused-vars
         
         // Classic format uses block IDs, we need a mapping from old IDs to names
         const classicIdToName = {
@@ -829,7 +923,13 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
         unmappedBlocks: unmappedBlockTracker.blocks,
         terrainBuilderRef,
         environmentBuilderRef,
-        blockCount: Object.keys(hytopiaMap.blocks).length 
+        blockCount: Object.keys(hytopiaMap.blocks).length,
+        regionSelection: regionSelection,
+        centerOffset: {
+          x: offsetX,
+          y: offsetY,
+          z: offsetZ
+        }
       };
     }
     
@@ -844,7 +944,16 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     console.log("Schematic import complete");
     
     // Return the number of blocks imported
-    return { success: true, blockCount: Object.keys(hytopiaMap.blocks).length };
+    return {
+      success: true,
+      blockCount: Object.keys(hytopiaMap.blocks).length,
+      regionSelection: regionSelection,
+      centerOffset: {
+        x: offsetX,
+        y: offsetY,
+        z: offsetZ
+      }
+    };
   } catch (error) {
     console.error('Error importing schematic:', error);
     throw error;
@@ -903,6 +1012,11 @@ export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks,
             }
           });
           break;
+          
+        default:
+          // Default to using fallback ID for unknown actions
+          console.warn(`Unknown decision action: ${decision.action} for block ${blockName}, using fallback`);
+          break;
       }
     });
     
@@ -919,6 +1033,112 @@ export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks,
     return { success: true, blockCount: Object.keys(finalBlockMap).length };
   } catch (error) {
     console.error("Error finalizing schematic import:", error);
+    throw error;
+  }
+}
+
+// Helper function to extract schematic dimensions without importing blocks
+export async function previewSchematic(file) {
+  try {
+    console.log(`Previewing schematic file: ${file.name}`);
+    
+    // Read the file as ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    
+    // Check if the file is gzipped
+    const isGzippedFile = isGzipped(data);
+    console.log('File appears to be', isGzippedFile ? 'gzipped' : 'not gzipped');
+    
+    let fileData;
+    if (isGzippedFile) {
+      // Decompress the gzipped data using our helper function
+      try {
+        fileData = decompressGzip(data);
+      } catch (e) {
+        console.error('Error decompressing gzipped data:', e);
+        throw new Error('Failed to decompress gzipped schematic file. The file may be corrupted.');
+      }
+    } else {
+      fileData = data;
+    }
+    
+    // Convert to Buffer for prismarine-nbt
+    const buffer = Buffer.from(fileData);
+    
+    // Parse the NBT data with better error handling
+    let parsedNBT;
+    try {
+      parsedNBT = await nbt.parse(buffer);
+    } catch (e) {
+      console.error('Error parsing NBT data:', e);
+      throw new Error('Failed to parse NBT data. The schematic file may be in an unsupported format.');
+    }
+    
+    // Get the schematic structure, handling different NBT layouts
+    const schematic = parsedNBT?.parsed?.value?.Schematic?.value || parsedNBT?.parsed?.value || {};
+    
+    // Improved format detection logic
+    let formatType = "unknown";
+    // Initialize offset variables
+    let offsetX = 0, offsetY = 0, offsetZ = 0;
+    
+    // Detect format type based on available fields
+    if (schematic.BlockData && schematic.Palette) {
+      formatType = "modern_worldedit";
+    } else if (schematic.Blocks?.value?.Data && schematic.Blocks?.value?.Palette) {
+      formatType = "modern_worldedit_nested";
+    } else if (schematic.Blocks && schematic.Data) {
+      formatType = "classic";
+    }
+    
+    console.log(`Detected schematic format: ${formatType}`);
+    
+    // Get the dimensions based on the format type
+    let width = 0, height = 0, length = 0;
+    
+    switch (formatType) {
+      case "classic":
+      case "modern_worldedit":
+      case "modern_worldedit_nested":
+        width = schematic.Width?.value || 0;
+        height = schematic.Height?.value || 0;
+        length = schematic.Length?.value || 0;
+        break;
+        
+      default:
+        // Default case for unsupported formats
+        console.warn(`Using default dimensions for unsupported format: ${formatType}`);
+        width = 0;
+        height = 0;
+        length = 0;
+        break;
+    }
+    
+    // Handle WE offset if available
+    if (schematic.WEOffsetX?.value !== undefined) {
+      offsetX = schematic.WEOffsetX.value;
+      offsetY = schematic.WEOffsetY?.value || 0;
+      offsetZ = schematic.WEOffsetZ?.value || 0;
+    }
+    
+    console.log(`Dimensions: ${width}x${height}x${length}, Offset: (${offsetX},${offsetY},${offsetZ})`);
+    
+    return {
+      success: true,
+      dimensions: {
+        width,
+        height,
+        length
+      },
+      centerOffset: {
+        x: offsetX,
+        y: offsetY,
+        z: offsetZ
+      }
+    };
+  } catch (error) {
+    console.error('Error previewing schematic:', error);
     throw error;
   }
 } 
