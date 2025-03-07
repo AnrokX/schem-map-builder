@@ -170,12 +170,84 @@ function getFallbackBlockId(blockName) {
   return fallbackMapping.unknown.id;
 }
 
+// Create and manage progress bar UI
+function createProgressBar() {
+  let progressBar = document.getElementById('schematic-import-progress');
+  if (!progressBar) {
+    progressBar = document.createElement('div');
+    progressBar.id = 'schematic-import-progress';
+    progressBar.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 200px;
+      height: 20px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      overflow: hidden;
+      display: none;
+      z-index: 9999;
+    `;
+
+    const progressFill = document.createElement('div');
+    progressFill.id = 'schematic-import-progress-fill';
+    progressFill.style.cssText = `
+      width: 0%;
+      height: 100%;
+      background: #4CAF50;
+      transition: width 0.3s ease;
+    `;
+
+    const progressText = document.createElement('div');
+    progressText.id = 'schematic-import-progress-text';
+    progressText.style.cssText = `
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-family: Arial, sans-serif;
+    `;
+
+    progressBar.appendChild(progressFill);
+    progressBar.appendChild(progressText);
+    document.body.appendChild(progressBar);
+  }
+  return progressBar;
+}
+
+function updateProgressBar(progress) {
+  const progressBar = document.getElementById('schematic-import-progress');
+  const progressFill = document.getElementById('schematic-import-progress-fill');
+  const progressText = document.getElementById('schematic-import-progress-text');
+  
+  if (progressBar && progressFill && progressText) {
+    progressBar.style.display = 'block';
+    progressFill.style.width = `${progress}%`;
+    progressText.textContent = `Importing: ${progress}%`;
+    
+    if (progress >= 100) {
+      setTimeout(() => {
+        progressBar.style.display = 'none';
+      }, 1000);
+    }
+  }
+}
+
 // Helper function to process blocks in chunks
 async function processBlocksInChunks(blockData, width, height, length, offsetX, offsetY, offsetZ, paletteIdToName, blockMapping, chunkSize = 1000) {
   const blocks = {};
   const totalBlocks = blockData.length;
   let blockIndex = 0;
   let lastProgressLog = 0;
+
+  // Create progress bar at start
+  createProgressBar();
+  updateProgressBar(0);
 
   return new Promise((resolve) => {
     function processChunk() {
@@ -232,18 +304,19 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
         blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
       }
 
-      // Log progress every 10%
+      // Update progress
       const progress = Math.floor((blockIndex / totalBlocks) * 100);
-      if (progress >= lastProgressLog + 10) {
+      if (progress >= lastProgressLog + 5) {  // Update every 5% instead of 10%
         console.log(`Import progress: ${progress}%`);
+        updateProgressBar(progress);
         lastProgressLog = progress;
       }
 
       if (blockIndex < totalBlocks) {
-        // Use requestAnimationFrame instead of setTimeout for smoother UI
         requestAnimationFrame(processChunk);
       } else {
         console.log('Import complete: 100%');
+        updateProgressBar(100);
         resolve(blocks);
       }
     }
