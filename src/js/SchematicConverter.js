@@ -6,7 +6,7 @@ import { Buffer } from 'buffer';
 // Global map to track dynamic block mappings for the session
 const dynamicBlockMappings = new Map();
 
-// Use this to define fallback block mappings based on name components
+// Use this to define fallback block mappings based on name components 
 const fallbackMapping = {
   unknown: { id: 37, name: "stone" },
   stone: { id: 37, name: "stone" },
