@@ -880,6 +880,16 @@ export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks,
           });
           break;
           
+        case 'useExisting':
+          // Change all instances of this block to the selected existing block ID
+          Object.keys(finalBlockMap).forEach(pos => {
+            if (blockInfo.positions.includes(pos) || 
+                finalBlockMap[pos] === blockInfo.fallbackId) {
+              finalBlockMap[pos] = decision.selectedBlockId;
+            }
+          });
+          break;
+          
         case 'useFallback':
           // Keep fallback ID (no change needed)
           break;

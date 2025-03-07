@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { processCustomBlock } from '../TerrainBuilder';
+import { processCustomBlock, getBlockTypes } from '../TerrainBuilder';
 import { finalizeSchematicImport } from '../SchematicConverter';
-import { FaUpload, FaCheck, FaTimes, FaTrash } from 'react-icons/fa';
+import { FaUpload, FaCheck, FaTimes, FaTrash, FaExchangeAlt } from 'react-icons/fa';
 import Tooltip from './Tooltip';
+import BlockButton from './BlockButton';
 import './BlockImportModal.css';
 
 // Helper function to get block name for display
@@ -30,13 +31,30 @@ const BlockImportModal = ({
   const [selectedTab, setSelectedTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [progress, setProgress] = useState(0);
+  const [availableBlocks, setAvailableBlocks] = useState([]);
+  const [showBlockSelector, setShowBlockSelector] = useState(null);
+  const [selectorFilter, setSelectorFilter] = useState('');
   
-  // Prepare block decisions on initial load
+  // Prepare block decisions and load available blocks on initial load
   useEffect(() => {
     if (isOpen && unmappedBlocks) {
+      // Get all available block types
+      const blockTypes = getBlockTypes();
+      // Filter out custom blocks and environment models
+      const standardBlocks = blockTypes.filter(block => 
+        !block.isCustom && 
+        !block.isEnvironment &&
+        block.id < 100
+      );
+      setAvailableBlocks(standardBlocks);
+      
+      // Initialize block decisions with fallback
       const initialDecisions = {};
-      Object.keys(unmappedBlocks).forEach(blockName => {
-        initialDecisions[blockName] = { action: 'useFallback' };
+      Object.entries(unmappedBlocks).forEach(([blockName, info]) => {
+        initialDecisions[blockName] = { 
+          action: 'useExisting', 
+          selectedBlockId: info.fallbackId 
+        };
       });
       setBlockDecisions(initialDecisions);
     }
@@ -55,7 +73,7 @@ const BlockImportModal = ({
     if (selectedTab === 'pending') {
       blocks = blocks.filter(block => 
         !blockDecisions[block.name] || 
-        blockDecisions[block.name].action === 'useFallback'
+        blockDecisions[block.name].action === 'useExisting'
       );
     } else if (selectedTab === 'custom') {
       blocks = blocks.filter(block => 
@@ -79,6 +97,23 @@ const BlockImportModal = ({
     
     // Sort by block count (most frequent first)
     return blocks.sort((a, b) => b.count - a.count);
+  };
+
+  // Filter blocks for the selector
+  const filteredSelectorBlocks = () => {
+    if (!availableBlocks) return [];
+    
+    let blocks = [...availableBlocks];
+    
+    // Apply search filter to selector
+    if (selectorFilter) {
+      const query = selectorFilter.toLowerCase();
+      blocks = blocks.filter(block => 
+        block.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return blocks;
   };
   
   // Handle file upload for custom texture
@@ -155,6 +190,32 @@ const BlockImportModal = ({
       setBlockDecisions(newDecisions);
     }
   };
+
+  // Select an existing block for the unmapped block
+  const handleSelectBlock = (blockName, selectedBlock) => {
+    updateBlockDecision(blockName, 'useExisting', { 
+      selectedBlockId: selectedBlock.id 
+    });
+    
+    // If apply to similar is enabled, apply to similar blocks
+    if (applyToSimilar) {
+      applySimilarBlocks(blockName, 'useExisting', { 
+        selectedBlockId: selectedBlock.id 
+      });
+    }
+    
+    // Close the selector
+    setShowBlockSelector(null);
+  };
+  
+  // Get the currently selected block for a block name
+  const getSelectedBlock = (blockName) => {
+    const decision = blockDecisions[blockName];
+    if (!decision || decision.action !== 'useExisting') return null;
+    
+    const selectedBlockId = decision.selectedBlockId;
+    return availableBlocks.find(block => block.id === selectedBlockId);
+  };
   
   // Handle import finalization
   const handleConfirmImport = async () => {
@@ -202,10 +263,10 @@ const BlockImportModal = ({
         </div>
         
         <div className="block-import-modal-info">
-          <p>The schematic contains {Object.keys(unmappedBlocks || {}).length} block types without matching textures in HYTOPIA. 
+          <p>The schematic contains {Object.keys(unmappedBlocks || {}).length} block types without exact matches in HYTOPIA. 
             For each block, you can:</p>
           <ul>
-            <li><strong>Use Fallback:</strong> Apply the automatic fallback texture</li>
+            <li><strong>Select HYTOPIA Block:</strong> Choose from existing HYTOPIA blocks</li>
             <li><strong>Upload Texture:</strong> Provide a custom texture</li>
             <li><strong>Skip Block:</strong> Remove this block type from the import</li>
           </ul>
@@ -223,7 +284,7 @@ const BlockImportModal = ({
               className={selectedTab === 'pending' ? 'active' : ''} 
               onClick={() => setSelectedTab('pending')}
             >
-              Using Fallback
+              Using Existing
             </button>
             <button 
               className={selectedTab === 'custom' ? 'active' : ''} 
@@ -266,15 +327,30 @@ const BlockImportModal = ({
                 <p className="block-count">{block.count} blocks in schematic</p>
                 
                 <div className="block-preview-container">
-                  <div className="fallback-preview">
-                    <p>Fallback Texture:</p>
-                    <div 
-                      className="texture-preview"
-                      style={{
-                        backgroundImage: `url(${window.getFallbackTextureUrl?.(block.fallbackId) || './assets/blocks/error.png'})`
-                      }}
-                    />
-                  </div>
+                  {blockDecisions[block.name]?.action === 'useExisting' && (
+                    <div className="existing-preview">
+                      <p>Selected HYTOPIA Block:</p>
+                      <div 
+                        className="texture-preview"
+                        style={{
+                          backgroundImage: `url(${
+                            getSelectedBlock(block.name) 
+                              ? `/${getSelectedBlock(block.name).textureUri}` 
+                              : './assets/blocks/error.png'
+                          })`
+                        }}
+                      />
+                      <span className="block-name">
+                        {getSelectedBlock(block.name)?.name || 'Unknown'}
+                      </span>
+                      <button 
+                        className="change-block-button"
+                        onClick={() => setShowBlockSelector(block.name)}
+                      >
+                        <FaExchangeAlt /> Change
+                      </button>
+                    </div>
+                  )}
                   
                   {blockDecisions[block.name]?.action === 'useCustomTexture' && (
                     <div className="custom-preview">
@@ -291,12 +367,19 @@ const BlockImportModal = ({
               </div>
               
               <div className="block-actions">
-                <Tooltip text="Use Fallback Texture">
+                <Tooltip text="Select HYTOPIA Block">
                   <button 
-                    className={`action-button ${blockDecisions[block.name]?.action === 'useFallback' ? 'active' : ''}`}
-                    onClick={() => updateBlockDecision(block.name, 'useFallback')}
+                    className={`action-button ${blockDecisions[block.name]?.action === 'useExisting' ? 'active' : ''}`}
+                    onClick={() => {
+                      if (blockDecisions[block.name]?.action !== 'useExisting') {
+                        updateBlockDecision(block.name, 'useExisting', { 
+                          selectedBlockId: block.fallbackId 
+                        });
+                      }
+                      setShowBlockSelector(block.name);
+                    }}
                   >
-                    <FaCheck />
+                    <FaExchangeAlt />
                   </button>
                 </Tooltip>
                 
@@ -330,6 +413,51 @@ const BlockImportModal = ({
             </div>
           )}
         </div>
+        
+        {/* Block Selector Modal */}
+        {showBlockSelector && (
+          <div className="block-selector-modal">
+            <div className="block-selector-header">
+              <h3>Select a HYTOPIA Block</h3>
+              <button className="close-button" onClick={() => setShowBlockSelector(null)}>
+                <FaTimes />
+              </button>
+            </div>
+            
+            <div className="block-selector-search">
+              <input
+                type="text"
+                placeholder="Search blocks..."
+                value={selectorFilter}
+                onChange={(e) => setSelectorFilter(e.target.value)}
+              />
+            </div>
+            
+            <div className="block-selector-grid">
+              {filteredSelectorBlocks().map(block => (
+                <div 
+                  key={block.id}
+                  className="block-selector-item"
+                  onClick={() => handleSelectBlock(showBlockSelector, block)}
+                >
+                  <div 
+                    className="block-selector-preview"
+                    style={{
+                      backgroundImage: `url(/${block.textureUri})`
+                    }}
+                  />
+                  <span className="block-selector-name">{block.name}</span>
+                </div>
+              ))}
+              
+              {filteredSelectorBlocks().length === 0 && (
+                <div className="no-blocks-message">
+                  <p>No matching blocks found.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         
         <div className="block-import-modal-footer">
           {loading && (
