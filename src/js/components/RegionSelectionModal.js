@@ -7,7 +7,8 @@ const RegionSelectionModal = ({
   onClose, 
   onSelectRegion,
   dimensions,
-  centerOffset
+  centerOffset,
+  actualBlockCount
 }) => {
   // Initialize with the full dimensions of the schematic
   const [minX, setMinX] = useState(-Math.floor(dimensions?.width / 2) || 0);
@@ -37,15 +38,32 @@ const RegionSelectionModal = ({
     }
   }, [dimensions, centerOffset]);
   
-  // Calculate total blocks in the selected region
+  // Calculate total blocks in the selected region (excluding air blocks)
   const calculateBlockCount = () => {
-    if (useFullMap || !dimensions) return "all";
+    if (useFullMap || !dimensions) return actualBlockCount || "all";
     
-    const width = maxX - minX + 1;
-    const height = maxY - minY + 1;
-    const depth = maxZ - minZ + 1;
+    // If we don't have the actual block count, return unknown
+    if (!actualBlockCount) return "unknown";
     
-    return width * height * depth;
+    // If the full dimension is selected, return the total count
+    if (
+      minX === -Math.floor(dimensions.width / 2) + (centerOffset?.x || 0) &&
+      minY === 0 + (centerOffset?.y || 0) &&
+      minZ === -Math.floor(dimensions.length / 2) + (centerOffset?.z || 0) &&
+      maxX === Math.ceil(dimensions.width / 2) - 1 + (centerOffset?.x || 0) &&
+      maxY === (dimensions.height || 0) - 1 + (centerOffset?.y || 0) &&
+      maxZ === Math.ceil(dimensions.length / 2) - 1 + (centerOffset?.z || 0)
+    ) {
+      return actualBlockCount;
+    }
+    
+    // For partial selections, estimate the block count based on volume ratio
+    const totalVolume = dimensions.width * dimensions.height * dimensions.length;
+    const selectedVolume = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+    const ratio = selectedVolume / totalVolume;
+    
+    // Estimation may not be perfectly accurate due to uneven block distribution
+    return Math.round(actualBlockCount * ratio);
   };
   
   const handleConfirm = () => {
@@ -83,6 +101,7 @@ const RegionSelectionModal = ({
         <div className="block-import-modal-info">
           <p>Select a specific region of the schematic to import, or import the entire schematic.</p>
           <p>Full schematic dimensions: {dimensions?.width || 0} x {dimensions?.height || 0} x {dimensions?.length || 0} blocks</p>
+          <p>Total blocks (excluding air): <strong>{actualBlockCount || "Unknown"}</strong></p>
         </div>
         
         <div className="region-selection-container">
@@ -164,8 +183,13 @@ const RegionSelectionModal = ({
                   Selected region: {Math.abs(maxX - minX) + 1} x {Math.abs(maxY - minY) + 1} x {Math.abs(maxZ - minZ) + 1} blocks
                 </p>
                 <p>
-                  Total blocks in region: {calculateBlockCount()}
+                  Estimated blocks in selection: <strong>{calculateBlockCount()}</strong> (excluding air blocks)
                 </p>
+                {!useFullMap && calculateBlockCount() !== actualBlockCount && (
+                  <p className="region-note">
+                    Note: Block count is an estimation based on volume. Actual count may vary depending on block distribution.
+                  </p>
+                )}
               </div>
             </div>
           )}
