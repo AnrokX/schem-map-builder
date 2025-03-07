@@ -158,6 +158,36 @@ export const removeCustomBlock = (blockIdToRemove) => {
 // Export the blockTypes getter
 export const getBlockTypes = () => blockTypesArray;
 
+// Add utility function to find a block by name
+export const findBlockByName = (blockName) => {
+	return blockTypesArray.find(block => block.name === blockName);
+};
+
+// Add utility function to find a block by ID
+export const findBlockById = (blockId) => {
+	return blockTypesArray.find(block => block.id === blockId);
+};
+
+// Add utility function to get a fallback texture URL by ID
+export const getFallbackTextureUrl = (blockId) => {
+	const block = findBlockById(blockId);
+	return block ? `/${block.textureUri}` : './assets/blocks/error.png';
+};
+
+// Add utility function to get a custom block ID by name
+export const getCustomBlockId = (blockName) => {
+	const block = findBlockByName(blockName);
+	return block && block.isCustom ? block.id : null;
+};
+
+// Expose utility functions to the window for use in other components
+if (typeof window !== 'undefined') {
+	window.findBlockByName = findBlockByName;
+	window.findBlockById = findBlockById;
+	window.getFallbackTextureUrl = getFallbackTextureUrl;
+	window.getCustomBlockId = getCustomBlockId;
+}
+
 export const getCustomBlocks = () => {
 	const customBlocks = blockTypesArray.filter(block => block.id >= 100);
 	return customBlocks;
