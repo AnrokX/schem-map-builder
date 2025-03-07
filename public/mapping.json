@@ -1,52 +1,52 @@
 {
   "blocks": {
     "minecraft:stone": {
-      "id": 19,
+      "id": 37,
       "hytopiaBlock": "stone",
       "textureUri": "blocks/stone.png"
     },
     "minecraft:grass_block": {
-      "id": 7,
+      "id": 16,
       "hytopiaBlock": "grass",
       "textureUri": "blocks/grass.png"
     },
     "minecraft:dirt": {
-      "id": 4,
+      "id": 8,
       "hytopiaBlock": "dirt",
       "textureUri": "blocks/dirt.png"
     },
     "minecraft:cobblestone": {
-      "id": 13,
+      "id": 24,
       "hytopiaBlock": "mossy-coblestone",
       "textureUri": "blocks/mossy-coblestone.png"
     },
     "minecraft:oak_planks": {
-      "id": 16,
+      "id": 28,
       "hytopiaBlock": "oak-planks",
       "textureUri": "blocks/oak-planks.png"
     },
     "minecraft:oak_log": {
-      "id": 11,
-      "hytopiaBlock": "log-side",
-      "textureUri": "blocks/log-side.png"
+      "id": 23,
+      "hytopiaBlock": "log",
+      "textureUri": "blocks/log.png"
     },
     "minecraft:oak_leaves": {
-      "id": 15,
+      "id": 27,
       "hytopiaBlock": "oak-leaves",
       "textureUri": "blocks/oak-leaves.png"
     },
     "minecraft:sand": {
-      "id": 17,
+      "id": 30,
       "hytopiaBlock": "sand",
       "textureUri": "blocks/sand.png"
     },
     "minecraft:glass": {
-      "id": 6,
+      "id": 14,
       "hytopiaBlock": "glass",
       "textureUri": "blocks/glass.png"
     },
     "minecraft:water": {
-      "id": 22,
+      "id": 43,
       "hytopiaBlock": "water-still",
       "textureUri": "blocks/water-still.png"
     },
@@ -54,6 +54,76 @@
       "id": 1,
       "hytopiaBlock": "bricks",
       "textureUri": "blocks/bricks.png"
+    },
+    "minecraft:clay": {
+      "id": 2,
+      "hytopiaBlock": "clay",
+      "textureUri": "blocks/clay.png"
+    },
+    "minecraft:coal_ore": {
+      "id": 3,
+      "hytopiaBlock": "coal-ore",
+      "textureUri": "blocks/coal-ore.png"
+    },
+    "minecraft:gravel": {
+      "id": 17,
+      "hytopiaBlock": "gravel",
+      "textureUri": "blocks/gravel.png"
+    },
+    "minecraft:gold_ore": {
+      "id": 15,
+      "hytopiaBlock": "gold-ore",
+      "textureUri": "blocks/gold-ore.png"
+    },
+    "minecraft:iron_ore": {
+      "id": 21,
+      "hytopiaBlock": "iron-ore",
+      "textureUri": "blocks/iron-ore.png"
+    },
+    "minecraft:diamond_ore": {
+      "id": 7,
+      "hytopiaBlock": "diamond-ore",
+      "textureUri": "blocks/diamond-ore.png"
+    },
+    "minecraft:diamond_block": {
+      "id": 6,
+      "hytopiaBlock": "diamond-block",
+      "textureUri": "blocks/diamond-block.png"
+    },
+    "minecraft:emerald_ore": {
+      "id": 12,
+      "hytopiaBlock": "emerald-ore",
+      "textureUri": "blocks/emerald-ore.png"
+    },
+    "minecraft:emerald_block": {
+      "id": 11,
+      "hytopiaBlock": "emerald-block",
+      "textureUri": "blocks/emerald-block.png"
+    },
+    "minecraft:lava": {
+      "id": 22,
+      "hytopiaBlock": "lava",
+      "textureUri": "blocks/lava.png"
+    },
+    "minecraft:sandstone": {
+      "id": 32,
+      "hytopiaBlock": "sandstone",
+      "textureUri": "blocks/sandstone.png"
+    },
+    "minecraft:stone_bricks": {
+      "id": 36,
+      "hytopiaBlock": "stone-bricks",
+      "textureUri": "blocks/stone-bricks.png"
+    },
+    "minecraft:ice": {
+      "id": 18,
+      "hytopiaBlock": "ice",
+      "textureUri": "blocks/ice.png"
+    },
+    "minecraft:snow": {
+      "id": 35,
+      "hytopiaBlock": "snow",
+      "textureUri": "blocks/snow.png"
     }
   }
 } 
