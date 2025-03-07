@@ -178,16 +178,38 @@ function createProgressBar() {
     progressBar.id = 'schematic-import-progress';
     progressBar.style.cssText = `
       position: fixed;
-      top: 20px;
-      right: 20px;
-      width: 200px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 300px;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.8);
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      display: none;
+      z-index: 9999;
+      text-align: center;
+    `;
+
+    const messageText = document.createElement('div');
+    messageText.id = 'schematic-import-message';
+    messageText.style.cssText = `
+      color: white;
+      font-size: 14px;
+      font-family: Arial, sans-serif;
+      margin-bottom: 10px;
+    `;
+    messageText.textContent = 'Importing Schematic';
+
+    const progressBarContainer = document.createElement('div');
+    progressBarContainer.style.cssText = `
+      width: 100%;
       height: 20px;
       background: #1a1a1a;
       border: 1px solid #333;
       border-radius: 4px;
       overflow: hidden;
-      display: none;
-      z-index: 9999;
+      margin-bottom: 10px;
     `;
 
     const progressFill = document.createElement('div');
@@ -202,18 +224,15 @@ function createProgressBar() {
     const progressText = document.createElement('div');
     progressText.id = 'schematic-import-progress-text';
     progressText.style.cssText = `
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       color: white;
-      font-size: 12px;
+      font-size: 14px;
       font-family: Arial, sans-serif;
+      margin-top: 5px;
     `;
 
-    progressBar.appendChild(progressFill);
+    progressBarContainer.appendChild(progressFill);
+    progressBar.appendChild(messageText);
+    progressBar.appendChild(progressBarContainer);
     progressBar.appendChild(progressText);
     document.body.appendChild(progressBar);
   }
@@ -228,9 +247,10 @@ function updateProgressBar(progress) {
   if (progressBar && progressFill && progressText) {
     progressBar.style.display = 'block';
     progressFill.style.width = `${progress}%`;
-    progressText.textContent = `Importing: ${progress}%`;
+    progressText.textContent = `${progress}% Complete`;
     
     if (progress >= 100) {
+      progressText.textContent = 'Import Complete!';
       setTimeout(() => {
         progressBar.style.display = 'none';
       }, 1000);
