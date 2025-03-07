@@ -1096,14 +1096,88 @@ export async function previewSchematic(file) {
     
     // Get the dimensions based on the format type
     let width = 0, height = 0, length = 0;
+    let actualBlockCount = 0;  // Track the actual non-air block count
     
     switch (formatType) {
       case "classic":
+        width = schematic.Width?.value || 0;
+        height = schematic.Height?.value || 0;
+        length = schematic.Length?.value || 0;
+        
+        // Count non-air blocks (classic format)
+        if (schematic.Blocks && schematic.Data) {
+          const blocks = schematic.Blocks.value;
+          for (let i = 0; i < blocks.length; i++) {
+            // In classic format, block ID 0 is air
+            if (blocks[i] !== 0) {
+              actualBlockCount++;
+            }
+          }
+        }
+        break;
+        
       case "modern_worldedit":
+        width = schematic.Width?.value || 0;
+        height = schematic.Height?.value || 0;
+        length = schematic.Length?.value || 0;
+        
+        // Count non-air blocks (modern format)
+        if (schematic.BlockData?.value && schematic.Palette?.value) {
+          const blockData = schematic.BlockData.value;
+          const palette = schematic.Palette.value;
+          
+          // Convert palette to check for air blocks more precisely
+          const paletteAir = {};
+          for (const blockName in palette) {
+            // More precise air block detection
+            if (blockName === "minecraft:air" || 
+                blockName === "minecraft:cave_air" || 
+                blockName === "minecraft:void_air" ||
+                blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab")) {
+              paletteAir[palette[blockName].value] = true;
+            }
+          }
+          
+          // Count non-air blocks
+          for (let i = 0; i < blockData.length; i++) {
+            const blockId = blockData[i];
+            if (!paletteAir[blockId]) {
+              actualBlockCount++;
+            }
+          }
+        }
+        break;
+        
       case "modern_worldedit_nested":
         width = schematic.Width?.value || 0;
         height = schematic.Height?.value || 0;
         length = schematic.Length?.value || 0;
+        
+        // Count non-air blocks (nested format)
+        if (schematic.Blocks?.value?.Data?.value && schematic.Blocks?.value?.Palette?.value) {
+          const blockData = schematic.Blocks.value.Data.value;
+          const palette = schematic.Blocks.value.Palette.value;
+          
+          // Convert palette to check for air blocks more precisely
+          const paletteAir = {};
+          for (const blockName in palette) {
+            // More precise air block detection
+            if (blockName === "minecraft:air" || 
+                blockName === "minecraft:cave_air" || 
+                blockName === "minecraft:void_air" ||
+                blockName.endsWith(":air") && !blockName.includes("stairs") && !blockName.includes("slab")) {
+              paletteAir[palette[blockName].value] = true;
+            }
+          }
+          
+          // Count non-air blocks
+          for (let i = 0; i < blockData.length; i++) {
+            const blockId = blockData[i];
+            if (!paletteAir[blockId]) {
+              actualBlockCount++;
+            }
+          }
+        }
         break;
         
       default:
@@ -1123,6 +1197,7 @@ export async function previewSchematic(file) {
     }
     
     console.log(`Dimensions: ${width}x${height}x${length}, Offset: (${offsetX},${offsetY},${offsetZ})`);
+    console.log(`Actual non-air block count: ${actualBlockCount}`);
     
     return {
       success: true,
@@ -1131,6 +1206,7 @@ export async function previewSchematic(file) {
         height,
         length
       },
+      actualBlockCount,
       centerOffset: {
         x: offsetX,
         y: offsetY,

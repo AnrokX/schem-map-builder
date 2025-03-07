@@ -1,0 +1,10 @@
+.region-stats p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.region-note {
+  font-style: italic;
+  color: #777;
+  font-size: 13px !important;
+} 

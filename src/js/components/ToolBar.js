@@ -6,8 +6,11 @@ import "../../css/ToolBar.css";
 import { generatePerlinNoise } from "perlin-noise";
 import { 
 	exportMapFile,
+	// exportFullAssetPack and importAssetPack are not currently used but kept for future implementation
+	// eslint-disable-next-line no-unused-vars
 	exportFullAssetPack, 
 	importMap,
+	// eslint-disable-next-line no-unused-vars
 	importAssetPack
 } from '../ImportExport';
 import { importSchematic, previewSchematic } from '../SchematicConverter';
@@ -46,6 +49,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	const [schematicFile, setSchematicFile] = useState(null);
 	const [schematicDimensions, setSchematicDimensions] = useState(null);
 	const [schematicCenterOffset, setSchematicCenterOffset] = useState(null);
+	const [schematicActualBlockCount, setSchematicActualBlockCount] = useState(null);
 
 	// Add state for undo/redo button availability
 	const [canUndo, setCanUndo] = useState(true);
@@ -360,10 +364,12 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					if (previewResult && previewResult.dimensions) {
 						console.log("Schematic dimensions:", previewResult.dimensions);
 						console.log("Center offset:", previewResult.centerOffset);
+						console.log("Actual block count:", previewResult.actualBlockCount);
 						
-						// Store dimensions and center offset for the region selection modal
+						// Store dimensions, center offset, and actual block count for the region selection modal
 						setSchematicDimensions(previewResult.dimensions);
 						setSchematicCenterOffset(previewResult.centerOffset);
+						setSchematicActualBlockCount(previewResult.actualBlockCount);
 						
 						// Show the region selection modal
 						setShowRegionSelectionModal(true);
@@ -1021,6 +1027,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					onSelectRegion={handleRegionSelection}
 					dimensions={schematicDimensions}
 					centerOffset={schematicCenterOffset}
+					actualBlockCount={schematicActualBlockCount}
 				/>
 			)}
 		</>
