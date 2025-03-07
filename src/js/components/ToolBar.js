@@ -400,31 +400,9 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	
 	// Function to handle the actual import process
 	const processSchematicImport = (file, regionSelection) => {
-		// Show loading indicator for the actual import
-		const loadingMessage = document.createElement('div');
-		loadingMessage.id = 'schematic-loading-message';
-		loadingMessage.className = 'loading-message';
-		loadingMessage.innerText = 'Importing schematic...';
-		loadingMessage.style.position = 'fixed';
-		loadingMessage.style.top = '50%';
-		loadingMessage.style.left = '50%';
-		loadingMessage.style.transform = 'translate(-50%, -50%)';
-		loadingMessage.style.padding = '20px';
-		loadingMessage.style.background = 'rgba(0, 0, 0, 0.8)';
-		loadingMessage.style.color = 'white';
-		loadingMessage.style.borderRadius = '5px';
-		loadingMessage.style.zIndex = '1000';
-		document.body.appendChild(loadingMessage);
-		
 		// Import the schematic file with the selected region
 		importSchematic(file, terrainBuilderRef, environmentBuilderRef, '/mapping.json', regionSelection)
 			.then(result => {
-				// Remove loading message safely
-				const loadingEl = document.getElementById('schematic-loading-message');
-				if (loadingEl && loadingEl.parentNode) {
-					loadingEl.parentNode.removeChild(loadingEl);
-				}
-				
 				if (result && result.success) {
 					// Check if we need to show the import modal for unmapped blocks
 					if (result.requiresUserInput && result.unmappedBlocks) {
@@ -438,12 +416,6 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 				}
 			})
 			.catch(error => {
-				// Remove loading message safely
-				const loadingEl = document.getElementById('schematic-loading-message');
-				if (loadingEl && loadingEl.parentNode) {
-					loadingEl.parentNode.removeChild(loadingEl);
-				}
-				
 				// Show error message
 				showErrorMessage(`Error importing schematic: ${error.message}`);
 				console.error('Error importing schematic:', error);
