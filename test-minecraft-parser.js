@@ -583,46 +583,29 @@ async function analyzeRegionFile(buffer) {
                             data = blockStates.data.value.value;
                         }
 
-                        // Convert longArray data into block indices
+                        // Modify the block index extraction logic
                         let blockIndices = [];
                         if (Array.isArray(data)) {
-                            // Calculate bits needed per block based on palette size
                             const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
                             const blocksPerLong = Math.floor(64 / bitsPerBlock);
-                            const maskBits = (1n << BigInt(bitsPerBlock)) - 1n;
+                            const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
-                            // Process each long integer in the data array
-                            for (const longValue of data) {
-                                let value;
-                                if (Array.isArray(longValue)) {
-                                    // Handle split long values [upper32, lower32]
-                                    value = (BigInt(longValue[0]) << 32n) | BigInt(longValue[1]);
-                                } else if (typeof longValue === 'object' && longValue.value !== undefined) {
-                                    value = BigInt(longValue.value[0]) << 32n | BigInt(longValue.value[1]);
-                                } else {
-                                    value = BigInt(longValue);
+                            // Process in reverse order to account for endianness
+                            for (let i = data.length - 1; i >= 0; i--) {
+                                let longValue = BigInt(data[i]);
+                                if (Array.isArray(data[i])) {
+                                    longValue = (BigInt(data[i][0]) << 32n) | BigInt(data[i][1]);
                                 }
 
-                                // Extract indices from the packed data
-                                for (let i = 0; i < blocksPerLong && blockIndices.length < 4096; i++) {
-                                    const shift = BigInt(bitsPerBlock * (blocksPerLong - 1 - i));
-                                    const index = Number((value >> shift) & maskBits);
-                                    blockIndices.push(index);
+                                // Extract blocks in least-significant-bit-first order
+                                for (let j = 0; j < blocksPerLong; j++) {
+                                    const index = Number((longValue >> BigInt(j * bitsPerBlock)) & mask);
+                                    blockIndices.push(index % palette.length); // Ensure index stays within palette bounds
                                 }
                             }
 
-                            // Log some debug info for the first non-empty section
-                            if (!foundNonAirBlocks && blockIndices.length > 0) {
-                                console.log('\nDebug: Block Data Analysis');
-                                console.log(`Bits per block: ${bitsPerBlock}`);
-                                console.log(`Blocks per long: ${blocksPerLong}`);
-                                console.log(`Total indices extracted: ${blockIndices.length}`);
-                                console.log('First few indices:', blockIndices.slice(0, 10));
-                                console.log('First few blocks:', blockIndices.slice(0, 10).map(idx => {
-                                    const entry = palette[idx];
-                                    return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
-                                }));
-                            }
+                            // Trim excess blocks if we over-read
+                            blockIndices = blockIndices.slice(0, 4096);
                         }
 
                         // Only log the first non-air section we find
