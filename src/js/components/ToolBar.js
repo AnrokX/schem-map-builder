@@ -14,6 +14,7 @@ import {
 	importAssetPack
 } from '../ImportExport';
 import { importSchematic, previewSchematic } from '../SchematicConverter';
+import { importMinecraftWorld, previewMinecraftWorld } from '../MinecraftWorldImporter';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 import BlockImportModal from './BlockImportModal';
 import RegionSelectionModal from './RegionSelectionModal';
@@ -50,6 +51,10 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 	const [schematicDimensions, setSchematicDimensions] = useState(null);
 	const [schematicCenterOffset, setSchematicCenterOffset] = useState(null);
 	const [schematicActualBlockCount, setSchematicActualBlockCount] = useState(null);
+
+	// Add state for Minecraft world import
+	const [minecraftWorldFile, setMinecraftWorldFile] = useState(null);
+	const [worldInfo, setWorldInfo] = useState(null);
 
 	// Add state for undo/redo button availability
 	const [canUndo, setCanUndo] = useState(true);
@@ -392,10 +397,105 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 		}
 	};
 	
-	// Function to handle region selection
+	// Add new function for Minecraft world file selection
+	const onMinecraftWorldFileSelected = (event) => {
+		console.log("Minecraft world file selected:", event.target.files[0]);
+		if (event.target.files && event.target.files[0]) {
+			// Store the world file for later processing
+			setMinecraftWorldFile(event.target.files[0]);
+			
+			// Show loading indicator for initial world parsing
+			const loadingMessage = document.createElement('div');
+			loadingMessage.id = 'minecraft-loading-message';
+			loadingMessage.className = 'loading-message';
+			loadingMessage.innerText = 'Parsing Minecraft world...';
+			loadingMessage.style.position = 'fixed';
+			loadingMessage.style.top = '50%';
+			loadingMessage.style.left = '50%';
+			loadingMessage.style.transform = 'translate(-50%, -50%)';
+			loadingMessage.style.padding = '20px';
+			loadingMessage.style.background = 'rgba(0, 0, 0, 0.8)';
+			loadingMessage.style.color = 'white';
+			loadingMessage.style.borderRadius = '5px';
+			loadingMessage.style.zIndex = '1000';
+			document.body.appendChild(loadingMessage);
+			
+			// First do a preliminary import to get the world info
+			previewMinecraftWorld(event.target.files[0])
+				.then(previewResult => {
+					// Remove loading message
+					const loadingEl = document.getElementById('minecraft-loading-message');
+					if (loadingEl && loadingEl.parentNode) {
+						loadingEl.parentNode.removeChild(loadingEl);
+					}
+					
+					if (previewResult && previewResult.success) {
+						console.log("Minecraft world info:", previewResult.worldInfo);
+						
+						// Store world info for the region selection modal
+						setWorldInfo(previewResult.worldInfo);
+						
+						// Show the region selection modal with world info
+						setShowRegionSelectionModal(true);
+					} else {
+						// If we couldn't get info, just proceed with normal import
+						processMinecraftWorldImport(event.target.files[0], null);
+					}
+				})
+				.catch(error => {
+					// Remove loading message safely
+					const loadingEl = document.getElementById('minecraft-loading-message');
+					if (loadingEl && loadingEl.parentNode) {
+						loadingEl.parentNode.removeChild(loadingEl);
+					}
+					
+					// Show error message
+					showErrorMessage(`Error parsing Minecraft world: ${error.message}`);
+					console.error('Error parsing Minecraft world:', error);
+				});
+		}
+	};
+	
+	// Add a processMinecraftWorldImport function
+	const processMinecraftWorldImport = (file, regionSelection) => {
+		// Import the Minecraft world file with the selected region
+		importMinecraftWorld(file, terrainBuilderRef, environmentBuilderRef, '/mapping.json', regionSelection)
+			.then(result => {
+				if (result && result.success) {
+					// Check if we need to show the import modal for unmapped blocks
+					if (result.hasUnmappedBlocks && result.unmappedBlocks) {
+						// Store the import data and show the modal
+						setImportModalData({
+							...result,
+							requiresUserInput: true,
+							temporaryBlockMap: result.blocks,
+							importSource: 'minecraft' // Specify the source
+						});
+						setShowBlockImportModal(true);
+					} else {
+						// Show success message with block count
+						showSuccessMessage(`Minecraft world imported successfully! ${result.blockCount || 'Multiple'} blocks placed.`);
+					}
+				}
+			})
+			.catch(error => {
+				// Show error message
+				showErrorMessage(`Error importing Minecraft world: ${error.message}`);
+				console.error('Error importing Minecraft world:', error);
+			});
+	};
+	
+	// Update the region selection handler to work with both schematics and worlds
 	const handleRegionSelection = (regionSelection) => {
 		console.log("Selected region:", regionSelection);
-		processSchematicImport(schematicFile, regionSelection);
+		
+		// Check which type of file we're processing
+		if (minecraftWorldFile) {
+			processMinecraftWorldImport(minecraftWorldFile, regionSelection);
+			setMinecraftWorldFile(null); // Clear the reference after processing
+		} else if (schematicFile) {
+			processSchematicImport(schematicFile, regionSelection);
+		}
 	};
 	
 	// Function to handle the actual import process
@@ -407,7 +507,10 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					// Check if we need to show the import modal for unmapped blocks
 					if (result.requiresUserInput && result.unmappedBlocks) {
 						// Store the import data and show the modal
-						setImportModalData(result);
+						setImportModalData({
+							...result,
+							importSource: 'schematic' // Specify the source
+						});
 						setShowBlockImportModal(true);
 					} else {
 						// Show success message with block count
@@ -542,6 +645,20 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 								type="file"
 								accept=".schematic,.schem"
 								onChange={onSchematicFileSelected}
+								style={{ display: "none" }}
+							/>
+						</Tooltip>
+						<Tooltip text="Import Minecraft world file">
+							<button
+								onClick={() => document.getElementById("minecraftWorldFileInput").click()}
+								className="control-button import-export-button">
+								MC World
+							</button>
+							<input
+								id="minecraftWorldFileInput"
+								type="file"
+								accept=".zip,.mcworld"
+								onChange={onMinecraftWorldFileSelected}
 								style={{ display: "none" }}
 							/>
 						</Tooltip>
@@ -988,6 +1105,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					temporaryBlockMap={importModalData.temporaryBlockMap}
 					terrainBuilderRef={terrainBuilderRef}
 					onImportComplete={handleImportComplete}
+					importSource={importModalData.importSource}
 				/>
 			)}
 			
@@ -1000,6 +1118,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 					dimensions={schematicDimensions}
 					centerOffset={schematicCenterOffset}
 					actualBlockCount={schematicActualBlockCount}
+					worldInfo={worldInfo}
 				/>
 			)}
 		</>
