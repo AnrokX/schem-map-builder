@@ -5,7 +5,7 @@ const nbt = require('prismarine-nbt');
 const pako = require('pako');
 const { Buffer } = require('buffer');
 
-// Add these after the existing requires
+// Update fallback mapping to match SchematicConverter.js
 const fallbackMapping = {
     unknown: { id: 37, name: "stone" },
     stone: { id: 37, name: "stone" },
@@ -19,6 +19,32 @@ const fallbackMapping = {
     terracotta: { id: 37, name: "stone" },
     concrete: { id: 37, name: "stone" },
     ore: { id: 24, name: "ore" },
+    sand: { id: 34, name: "sand" },
+    water: { id: 43, name: "water-still" },
+    wood: { id: 28, name: "oak-planks" },
+    brick: { id: 1, name: "bricks" }
+};
+
+// Default block mapping that matches SchematicConverter.js
+const defaultBlockMapping = {
+    blocks: {
+        "minecraft:stone": { id: 37, hytopiaBlock: "stone" },
+        "minecraft:dirt": { id: 8, hytopiaBlock: "dirt" },
+        "minecraft:grass_block": { id: 16, hytopiaBlock: "grass" },
+        "minecraft:oak_planks": { id: 28, hytopiaBlock: "oak-planks" },
+        "minecraft:oak_log": { id: 23, hytopiaBlock: "log" },
+        "minecraft:glass": { id: 14, hytopiaBlock: "glass" },
+        "minecraft:bricks": { id: 1, hytopiaBlock: "bricks" },
+        "minecraft:black_wool": { id: 37, hytopiaBlock: "stone" },
+        "minecraft:white_wool": { id: 43, hytopiaBlock: "water-still" },
+        "minecraft:red_wool": { id: 1, hytopiaBlock: "bricks" },
+        "minecraft:brown_wool": { id: 8, hytopiaBlock: "dirt" },
+        "minecraft:brown_concrete": { id: 8, hytopiaBlock: "dirt" },
+        "minecraft:white_concrete": { id: 14, hytopiaBlock: "glass" },
+        "minecraft:black_concrete": { id: 37, hytopiaBlock: "stone" },
+        "minecraft:white_concrete_powder": { id: 14, hytopiaBlock: "glass" },
+        "minecraft:coal_block": { id: 37, hytopiaBlock: "stone" }
+    }
 };
 
 const dynamicBlockMappings = new Map();
@@ -36,17 +62,63 @@ const unmappedBlockTracker = {
         if (this.blocks[blockName].positions.length < 5) {
             this.blocks[blockName].positions.push(position);
         }
+    },
+    reset: function() {
+        this.blocks = {};
     }
 };
 
-// Add this helper function
-function getFallbackBlockId(blockName) {
+// Add loadBlockMapping function from SchematicConverter.js
+async function loadBlockMapping(mappingPath = 'mapping.json') {
+    try {
+        console.log(`Attempting to load block mapping from: ${mappingPath}`);
+        const data = await fs.promises.readFile(mappingPath, 'utf8');
+        const mappingData = JSON.parse(data);
+        console.log(`Successfully loaded mapping with ${Object.keys(mappingData.blocks || {}).length} block definitions`);
+        return mappingData;
+    } catch (error) {
+        console.error(`Error loading block mapping file: ${error.message}`);
+        console.log('Using default fallback mappings');
+        return defaultBlockMapping;
+    }
+}
+
+// Update getFallbackBlockId to match SchematicConverter.js logic
+function getFallbackBlockId(blockName, blockMapping) {
     const plainName = blockName.replace('minecraft:', '');
     
+    // Check if we've already mapped this block
     if (dynamicBlockMappings.has(plainName)) {
         return dynamicBlockMappings.get(plainName);
     }
 
+    // First try exact match in block mapping
+    if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+        const mappedId = blockMapping.blocks[blockName].id;
+        dynamicBlockMappings.set(plainName, mappedId);
+        console.log(`Mapped ${blockName} to ID ${mappedId} (exact match)`);
+        return mappedId;
+    }
+
+    // Try without minecraft: prefix
+    const withPrefix = `minecraft:${plainName}`;
+    if (blockMapping.blocks && blockMapping.blocks[withPrefix]) {
+        const mappedId = blockMapping.blocks[withPrefix].id;
+        dynamicBlockMappings.set(plainName, mappedId);
+        console.log(`Mapped ${blockName} to ID ${mappedId} (with prefix)`);
+        return mappedId;
+    }
+
+    // Try base name without block states
+    const baseName = blockName.split('[')[0];
+    if (blockMapping.blocks && blockMapping.blocks[baseName]) {
+        const mappedId = blockMapping.blocks[baseName].id;
+        dynamicBlockMappings.set(plainName, mappedId);
+        console.log(`Mapped ${blockName} to ID ${mappedId} (base name)`);
+        return mappedId;
+    }
+
+    // Try fallback category matching
     for (const [category, fallbackBlock] of Object.entries(fallbackMapping)) {
         if (category !== 'unknown' && plainName.toLowerCase().includes(category)) {
             dynamicBlockMappings.set(plainName, fallbackBlock.id);
@@ -55,6 +127,7 @@ function getFallbackBlockId(blockName) {
         }
     }
 
+    // Use default stone block if no match found
     dynamicBlockMappings.set(plainName, fallbackMapping.unknown.id);
     console.log(`Using default stone block for ${plainName}`);
     return fallbackMapping.unknown.id;
@@ -203,12 +276,18 @@ function findSectionsRecursively(obj, depth = 0, maxDepth = 5) {
 // Main test function
 async function testMinecraftWorldParsing(worldFilePath) {
     try {
-        // Reset statistics at start
+        // Reset statistics and mappings at start
         blockStatistics.reset();
+        unmappedBlockTracker.reset();
+        dynamicBlockMappings.clear();
 
         console.log('Reading world file:', worldFilePath);
         const buffer = await readFileAsBuffer(worldFilePath);
         
+        // Load block mapping first
+        const blockMapping = await loadBlockMapping();
+        console.log(`Loaded ${Object.keys(blockMapping.blocks || {}).length} block mappings`);
+
         // Load the ZIP file
         console.log('Loading ZIP file...');
         const zip = await JSZip.loadAsync(buffer);
@@ -527,7 +606,7 @@ async function analyzeRegionFile(buffer) {
                                         console.log(`Found block ${blockName} at ${worldX},${worldY},${worldZ}`);
                                     }
                                     
-                                    const mappedId = getFallbackBlockId(blockName);
+                                    const mappedId = getFallbackBlockId(blockName, blockMapping);
                                     blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
                                     
                                     blockStatistics.trackBlock(blockName, worldY);
