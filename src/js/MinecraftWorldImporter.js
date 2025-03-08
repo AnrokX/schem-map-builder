@@ -353,41 +353,75 @@ function findSectionsRecursively(obj, depth = 0, maxDepth = 5) {
 
 // Add this helper function to handle 1.21.4 format sections specifically
 function process121ChunkSections(sections, chunkX, chunkZ) {
+    // Debug the input
+    console.log(`Processing sections for chunk ${chunkX},${chunkZ}:`, 
+                JSON.stringify(sections?.slice?.(0, 1) || sections || 'null').substring(0, 200));
+
+    if (!sections) {
+        console.warn(`No sections data for chunk ${chunkX},${chunkZ}`);
+        return {};
+    }
+
+    // Handle NBT-style wrapped sections
+    if (sections.value) {
+        sections = sections.value;
+    }
+
     if (!Array.isArray(sections)) {
-        console.log(`No valid sections array for chunk ${chunkX},${chunkZ}`);
-        return [];  // Return empty array instead of generating fallback
+        console.warn(`Sections is not an array for chunk ${chunkX},${chunkZ}`);
+        return {};
     }
 
     const processedBlocks = {};
     
-    sections.forEach(section => {
-        // Skip if section doesn't have required data
-        if (!section?.block_states?.palette || !section?.block_states?.data) {
+    sections.forEach((section, idx) => {
+        // Handle NBT-style wrapped section
+        if (section?.value) {
+            section = section.value;
+        }
+
+        // Debug section structure
+        console.log(`Processing section ${idx}, keys:`, Object.keys(section || {}));
+
+        // Get block states and palette
+        const blockStates = section?.block_states?.data?.value || 
+                          section?.block_states?.data || 
+                          section?.BlockStates?.value || 
+                          section?.BlockStates;
+                          
+        const palette = section?.block_states?.palette?.value || 
+                       section?.block_states?.palette || 
+                       section?.Palette?.value || 
+                       section?.Palette;
+
+        if (!blockStates || !palette) {
+            console.log(`Skipping section ${idx}: no block states or palette`);
             return;
         }
 
         const y = section.Y || 0;
-        const palette = section.block_states.palette;
-        const blockStates = section.block_states.data;
 
-        // Process only actual blocks (skip air)
-        blockStates.forEach((stateId, index) => {
+        // Process blocks
+        for (let i = 0; i < blockStates.length; i++) {
+            const stateId = blockStates[i];
             const blockData = palette[stateId];
-            if (!blockData || !blockData.Name || blockData.Name === 'minecraft:air') {
-                return;
-            }
+            
+            if (!blockData || !blockData.Name) continue;
+            
+            const blockName = blockData.Name.value || blockData.Name;
+            if (blockName === 'minecraft:air') continue;
 
-            // Calculate actual coordinates
-            const localY = Math.floor(index / 256);
-            const localZ = Math.floor((index % 256) / 16);
-            const localX = index % 16;
+            // Calculate coordinates
+            const localY = Math.floor(i / 256);
+            const localZ = Math.floor((i % 256) / 16);
+            const localX = i % 16;
 
             const globalX = chunkX * 16 + localX;
             const globalY = y * 16 + localY;
             const globalZ = chunkZ * 16 + localZ;
 
-            processedBlocks[`${globalX},${globalY},${globalZ}`] = blockData.Name;
-        });
+            processedBlocks[`${globalX},${globalY},${globalZ}`] = blockName;
+        }
     });
 
     return processedBlocks;
@@ -510,7 +544,6 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
     // Check if the data is valid
     if (!chunk.data) {
       console.warn(`Empty chunk data for chunk ${chunkX},${chunkZ}`);
-      return generateFallbackChunk(chunkX, chunkZ, regionSelection);
     }
 
     // DEBUG: Log the top-level keys for the first chunk to understand the structure
@@ -624,7 +657,6 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
       // If we still don't have sections, use the fallback grid
       if (Object.keys(sections).length === 0) {
         console.log(`No sections found in chunk ${chunkX},${chunkZ}, generating fallback terrain`);
-        return generateFallbackChunk(chunkX, chunkZ, regionSelection);
       }
     }
     
@@ -796,13 +828,11 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
     console.log(`Extracted ${Object.keys(blocks).length} blocks from chunk ${chunkX},${chunkZ}`);
   } catch (error) {
     console.error(`Error processing chunk ${chunkX},${chunkZ}:`, error);
-    return generateFallbackChunk(chunkX, chunkZ, regionSelection);
   }
   
   // If we couldn't extract any blocks, use fallback
   if (Object.keys(blocks).length === 0) {
     console.log(`No blocks extracted from chunk ${chunkX},${chunkZ}, using fallback`);
-    return generateFallbackChunk(chunkX, chunkZ, regionSelection);
   }
   
   return blocks;
@@ -1745,17 +1775,32 @@ export async function finalizeMinecraftWorldImport(temporaryBlockMap, unmappedBl
 // Helper function to store blocks in database
 async function storeBlocksInDatabase(blocks) {
     if (!blocks || Object.keys(blocks).length === 0) {
-        console.log('No blocks to store in database');
+        console.warn('No blocks to store in database');
         return;
     }
 
     console.log(`Storing ${Object.keys(blocks).length} blocks in database...`);
+    
     try {
+        // Clear existing blocks
         await DatabaseManager.clearStore(STORES.TERRAIN);
-        await DatabaseManager.bulkAddToStore(STORES.TERRAIN, blocks);
-        console.log('Successfully stored blocks in database');
-    } catch (dbError) {
-        console.error('Error storing blocks in database:', dbError);
+        
+        // Store blocks in chunks to prevent memory issues
+        const blockEntries = Object.entries(blocks);
+        const chunkSize = 10000;
+        
+        for (let i = 0; i < blockEntries.length; i += chunkSize) {
+            const chunk = Object.fromEntries(blockEntries.slice(i, i + chunkSize));
+            // Use saveData instead of addToStore
+            await DatabaseManager.saveData(STORES.TERRAIN, 'current', chunk);
+            console.log(`Stored blocks ${i} to ${Math.min(i + chunkSize, blockEntries.length)}`);
+        }
+        
+        console.log('Successfully stored all blocks in database');
+        return true;
+    } catch (error) {
+        console.error('Error storing blocks:', error);
+        return false;
     }
 }
 
@@ -1829,4 +1874,40 @@ if (!DatabaseManager.refreshTerrain) {
       return false;
     }
   };
+} 
+
+// Update the terrain builder refresh
+async function updateTerrain(terrainBuilderRef, blocks) {
+    if (!terrainBuilderRef?.current) {
+        console.warn('No terrain builder reference available');
+        return false;
+    }
+
+    console.log('Attempting to update terrain with methods:', 
+        Object.keys(terrainBuilderRef.current).filter(k => typeof terrainBuilderRef.current[k] === 'function'));
+
+    // Try direct update first
+    if (terrainBuilderRef.current.buildUpdateTerrain) {
+        try {
+            await terrainBuilderRef.current.buildUpdateTerrain(blocks);
+            console.log('Successfully updated terrain directly');
+            return true;
+        } catch (error) {
+            console.warn('Failed to update terrain directly:', error);
+        }
+    }
+
+    // Try refresh from DB as fallback
+    if (terrainBuilderRef.current.refreshTerrainFromDB) {
+        try {
+            await terrainBuilderRef.current.refreshTerrainFromDB();
+            console.log('Successfully refreshed terrain from database');
+            return true;
+        } catch (error) {
+            console.warn('Failed to refresh terrain from database:', error);
+        }
+    }
+
+    console.warn('No compatible terrain update method found');
+    return false;
 } 
