@@ -175,3 +175,116 @@ BlockDataCollector.exportData('./my-output.json');
 - More detailed block property extraction
 - Structure detection (buildings, trees, caves)
 - Biome analysis and correlation with block types
+
+# Minecraft to Hytopia World Converter
+
+This tool converts Minecraft world data in the visualization_data.json format to the Hytopia world format.
+
+## How it Works
+
+The conversion script (`src/convert.js`) takes a Minecraft world visualization file and converts it to the Hytopia world format using a mapping file that maps Minecraft block types to Hytopia block types.
+
+### Input Files
+
+- `output/visualization_data.json`: The Minecraft world data in the visualization format
+- `public/mapping.json`: The mapping between Minecraft block types and Hytopia block types
+
+### Output File
+
+- `output/converted_world.json`: The converted world data in the Hytopia format
+
+## How to Use
+
+1. Make sure you have Node.js installed
+2. Place your Minecraft world data in `output/visualization_data.json`
+3. Make sure the mapping file is in `public/mapping.json`
+4. Run the conversion script:
+
+```bash
+cd src
+node convert.js
+```
+
+5. The converted world data will be saved to `output/converted_world.json`
+
+## Configuration Options
+
+The conversion script has several configuration options that can be modified in the script:
+
+```javascript
+const CONFIG = {
+  generateDefaultMappings: false, // Set to false to use existing block IDs for unmapped blocks
+  nextAvailableId: 100, // Starting ID for generated mappings (not used when generateDefaultMappings is false)
+  updateMappingFile: false, // Set to false since we're not generating new mappings
+  processAllBlocks: true, // Set to true to process all blocks, not just topBlocks
+  defaultBlockType: "minecraft:stone", // Default block type to use for unmapped blocks
+  fallbackBlockTypes: {
+    // Map categories of blocks to appropriate fallbacks
+    "grass": "minecraft:grass_block",
+    "dirt": "minecraft:dirt",
+    "wood": "minecraft:oak_log",
+    "leaves": "minecraft:oak_leaves",
+    "flower": "minecraft:dandelion",
+    "stone": "minecraft:stone",
+    "brick": "minecraft:stone_bricks",
+    // ... more fallback mappings ...
+  }
+};
+```
+
+- `generateDefaultMappings`: When set to false, the script will use existing block IDs from the mapping file for unmapped blocks.
+- `processAllBlocks`: When set to true, the script will process all blocks from all sections of the visualization data, not just the topBlocks section.
+- `defaultBlockType`: The default block type to use for unmapped blocks if no specific fallback is found.
+- `fallbackBlockTypes`: A mapping of block categories to appropriate fallback blocks. The script will check if an unmapped block name contains any of these categories and use the corresponding fallback block.
+
+## Handling Unmapped Blocks
+
+The script uses a smart fallback system for blocks that don't have direct mappings in the mapping.json file:
+
+1. For each unmapped block, the script checks if its name contains any of the categories defined in `fallbackBlockTypes`.
+2. If a match is found, the script uses the corresponding fallback block (e.g., "minecraft:spruce_planks" will use "minecraft:oak_planks").
+3. If no match is found, the script uses the default block type defined in `defaultBlockType`.
+
+This ensures that all blocks from the visualization data are included in the output, even if they don't have direct mappings.
+
+## Mapping File Format
+
+The mapping file (`public/mapping.json`) maps Minecraft block types to Hytopia block types. It has the following format:
+
+```json
+{
+  "blocks": {
+    "minecraft:stone": {
+      "id": 37,
+      "hytopiaBlock": "stone",
+      "textureUri": "blocks/stone.png"
+    },
+    "minecraft:grass_block": {
+      "id": 16,
+      "hytopiaBlock": "grass",
+      "textureUri": "blocks/grass.png"
+    },
+    ...
+  }
+}
+```
+
+## Adding New Block Mappings
+
+To add a new block mapping, add a new entry to the `blocks` object in the mapping file:
+
+```json
+"minecraft:new_block": {
+  "id": 123,
+  "hytopiaBlock": "hytopia_block_name",
+  "textureUri": "blocks/hytopia_block_texture.png"
+}
+```
+
+Make sure the `id` is unique and matches the ID in the Hytopia world format.
+
+## Troubleshooting
+
+If a Minecraft block type doesn't have a mapping in the mapping file, it will be skipped during conversion. To fix this, add a mapping for the block type in the mapping file.
+
+The script will print warnings for block types that don't have mappings.

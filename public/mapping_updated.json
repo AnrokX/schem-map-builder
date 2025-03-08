@@ -1,0 +1,419 @@
+{
+  "blocks": {
+    "minecraft:stone": {
+      "id": 37,
+      "hytopiaBlock": "stone",
+      "textureUri": "blocks/stone.png"
+    },
+    "minecraft:grass_block": {
+      "id": 16,
+      "hytopiaBlock": "grass",
+      "textureUri": "blocks/grass.png"
+    },
+    "minecraft:dirt": {
+      "id": 8,
+      "hytopiaBlock": "dirt",
+      "textureUri": "blocks/dirt.png"
+    },
+    "minecraft:cobblestone": {
+      "id": 24,
+      "hytopiaBlock": "mossy-coblestone",
+      "textureUri": "blocks/mossy-coblestone.png"
+    },
+    "minecraft:oak_planks": {
+      "id": 28,
+      "hytopiaBlock": "oak-planks",
+      "textureUri": "blocks/oak-planks.png"
+    },
+    "minecraft:oak_log": {
+      "id": 23,
+      "hytopiaBlock": "log",
+      "textureUri": "blocks/log.png"
+    },
+    "minecraft:oak_leaves": {
+      "id": 27,
+      "hytopiaBlock": "oak-leaves",
+      "textureUri": "blocks/oak-leaves.png"
+    },
+    "minecraft:sand": {
+      "id": 30,
+      "hytopiaBlock": "sand",
+      "textureUri": "blocks/sand.png"
+    },
+    "minecraft:glass": {
+      "id": 14,
+      "hytopiaBlock": "glass",
+      "textureUri": "blocks/glass.png"
+    },
+    "minecraft:water": {
+      "id": 43,
+      "hytopiaBlock": "water-still",
+      "textureUri": "blocks/water-still.png"
+    },
+    "minecraft:bricks": {
+      "id": 1,
+      "hytopiaBlock": "bricks",
+      "textureUri": "blocks/bricks.png"
+    },
+    "minecraft:clay": {
+      "id": 2,
+      "hytopiaBlock": "clay",
+      "textureUri": "blocks/clay.png"
+    },
+    "minecraft:coal_ore": {
+      "id": 3,
+      "hytopiaBlock": "coal-ore",
+      "textureUri": "blocks/coal-ore.png"
+    },
+    "minecraft:gravel": {
+      "id": 17,
+      "hytopiaBlock": "gravel",
+      "textureUri": "blocks/gravel.png"
+    },
+    "minecraft:gold_ore": {
+      "id": 15,
+      "hytopiaBlock": "gold-ore",
+      "textureUri": "blocks/gold-ore.png"
+    },
+    "minecraft:iron_ore": {
+      "id": 21,
+      "hytopiaBlock": "iron-ore",
+      "textureUri": "blocks/iron-ore.png"
+    },
+    "minecraft:diamond_ore": {
+      "id": 7,
+      "hytopiaBlock": "diamond-ore",
+      "textureUri": "blocks/diamond-ore.png"
+    },
+    "minecraft:diamond_block": {
+      "id": 6,
+      "hytopiaBlock": "diamond-block",
+      "textureUri": "blocks/diamond-block.png"
+    },
+    "minecraft:emerald_ore": {
+      "id": 12,
+      "hytopiaBlock": "emerald-ore",
+      "textureUri": "blocks/emerald-ore.png"
+    },
+    "minecraft:emerald_block": {
+      "id": 11,
+      "hytopiaBlock": "emerald-block",
+      "textureUri": "blocks/emerald-block.png"
+    },
+    "minecraft:lava": {
+      "id": 22,
+      "hytopiaBlock": "lava",
+      "textureUri": "blocks/lava.png"
+    },
+    "minecraft:sandstone": {
+      "id": 32,
+      "hytopiaBlock": "sandstone",
+      "textureUri": "blocks/sandstone.png"
+    },
+    "minecraft:stone_bricks": {
+      "id": 36,
+      "hytopiaBlock": "stone-bricks",
+      "textureUri": "blocks/stone-bricks.png"
+    },
+    "minecraft:ice": {
+      "id": 18,
+      "hytopiaBlock": "ice",
+      "textureUri": "blocks/ice.png"
+    },
+    "minecraft:snow": {
+      "id": 35,
+      "hytopiaBlock": "snow",
+      "textureUri": "blocks/snow.png"
+    },
+    "minecraft:cornflower": {
+      "id": 100,
+      "hytopiaBlock": "cornflower",
+      "textureUri": "blocks/cornflower.png"
+    },
+    "minecraft:short_grass": {
+      "id": 101,
+      "hytopiaBlock": "short_grass",
+      "textureUri": "blocks/short_grass.png"
+    },
+    "minecraft:tall_grass": {
+      "id": 102,
+      "hytopiaBlock": "tall_grass",
+      "textureUri": "blocks/tall_grass.png"
+    },
+    "minecraft:dandelion": {
+      "id": 103,
+      "hytopiaBlock": "dandelion",
+      "textureUri": "blocks/dandelion.png"
+    },
+    "minecraft:poppy": {
+      "id": 104,
+      "hytopiaBlock": "poppy",
+      "textureUri": "blocks/poppy.png"
+    },
+    "minecraft:polished_andesite": {
+      "id": 105,
+      "hytopiaBlock": "polished_andesite",
+      "textureUri": "blocks/polished_andesite.png"
+    },
+    "minecraft:tall_seagrass": {
+      "id": 106,
+      "hytopiaBlock": "tall_seagrass",
+      "textureUri": "blocks/tall_seagrass.png"
+    },
+    "minecraft:seagrass": {
+      "id": 107,
+      "hytopiaBlock": "seagrass",
+      "textureUri": "blocks/seagrass.png"
+    },
+    "minecraft:dirt_path": {
+      "id": 108,
+      "hytopiaBlock": "dirt_path",
+      "textureUri": "blocks/dirt_path.png"
+    },
+    "minecraft:coarse_dirt": {
+      "id": 109,
+      "hytopiaBlock": "coarse_dirt",
+      "textureUri": "blocks/coarse_dirt.png"
+    },
+    "minecraft:oxeye_daisy": {
+      "id": 110,
+      "hytopiaBlock": "oxeye_daisy",
+      "textureUri": "blocks/oxeye_daisy.png"
+    },
+    "minecraft:polished_tuff": {
+      "id": 111,
+      "hytopiaBlock": "polished_tuff",
+      "textureUri": "blocks/polished_tuff.png"
+    },
+    "minecraft:polished_tuff_stairs": {
+      "id": 112,
+      "hytopiaBlock": "polished_tuff_stairs",
+      "textureUri": "blocks/polished_tuff_stairs.png"
+    },
+    "minecraft:chain": {
+      "id": 113,
+      "hytopiaBlock": "chain",
+      "textureUri": "blocks/chain.png"
+    },
+    "minecraft:azure_bluet": {
+      "id": 114,
+      "hytopiaBlock": "azure_bluet",
+      "textureUri": "blocks/azure_bluet.png"
+    },
+    "minecraft:oak_wood": {
+      "id": 115,
+      "hytopiaBlock": "oak_wood",
+      "textureUri": "blocks/oak_wood.png"
+    },
+    "minecraft:lily_of_the_valley": {
+      "id": 116,
+      "hytopiaBlock": "lily_of_the_valley",
+      "textureUri": "blocks/lily_of_the_valley.png"
+    },
+    "minecraft:cave_vines": {
+      "id": 117,
+      "hytopiaBlock": "cave_vines",
+      "textureUri": "blocks/cave_vines.png"
+    },
+    "minecraft:polished_tuff_slab": {
+      "id": 118,
+      "hytopiaBlock": "polished_tuff_slab",
+      "textureUri": "blocks/polished_tuff_slab.png"
+    },
+    "minecraft:cave_vines_plant": {
+      "id": 119,
+      "hytopiaBlock": "cave_vines_plant",
+      "textureUri": "blocks/cave_vines_plant.png"
+    },
+    "minecraft:vine": {
+      "id": 120,
+      "hytopiaBlock": "vine",
+      "textureUri": "blocks/vine.png"
+    },
+    "minecraft:spruce_fence": {
+      "id": 121,
+      "hytopiaBlock": "spruce_fence",
+      "textureUri": "blocks/spruce_fence.png"
+    },
+    "minecraft:spore_blossom": {
+      "id": 122,
+      "hytopiaBlock": "spore_blossom",
+      "textureUri": "blocks/spore_blossom.png"
+    },
+    "minecraft:spruce_planks": {
+      "id": 123,
+      "hytopiaBlock": "spruce_planks",
+      "textureUri": "blocks/spruce_planks.png"
+    },
+    "minecraft:andesite_wall": {
+      "id": 124,
+      "hytopiaBlock": "andesite_wall",
+      "textureUri": "blocks/andesite_wall.png"
+    },
+    "minecraft:mud_brick_stairs": {
+      "id": 125,
+      "hytopiaBlock": "mud_brick_stairs",
+      "textureUri": "blocks/mud_brick_stairs.png"
+    },
+    "minecraft:andesite_stairs": {
+      "id": 126,
+      "hytopiaBlock": "andesite_stairs",
+      "textureUri": "blocks/andesite_stairs.png"
+    },
+    "minecraft:azalea_leaves": {
+      "id": 127,
+      "hytopiaBlock": "azalea_leaves",
+      "textureUri": "blocks/azalea_leaves.png"
+    },
+    "minecraft:mud_bricks": {
+      "id": 128,
+      "hytopiaBlock": "mud_bricks",
+      "textureUri": "blocks/mud_bricks.png"
+    },
+    "minecraft:tuff": {
+      "id": 129,
+      "hytopiaBlock": "tuff",
+      "textureUri": "blocks/tuff.png"
+    },
+    "minecraft:spruce_slab": {
+      "id": 130,
+      "hytopiaBlock": "spruce_slab",
+      "textureUri": "blocks/spruce_slab.png"
+    },
+    "minecraft:spruce_stairs": {
+      "id": 131,
+      "hytopiaBlock": "spruce_stairs",
+      "textureUri": "blocks/spruce_stairs.png"
+    },
+    "minecraft:cobbled_deepslate_stairs": {
+      "id": 132,
+      "hytopiaBlock": "cobbled_deepslate_stairs",
+      "textureUri": "blocks/cobbled_deepslate_stairs.png"
+    },
+    "minecraft:cobbled_deepslate": {
+      "id": 133,
+      "hytopiaBlock": "cobbled_deepslate",
+      "textureUri": "blocks/cobbled_deepslate.png"
+    },
+    "minecraft:andesite": {
+      "id": 134,
+      "hytopiaBlock": "andesite",
+      "textureUri": "blocks/andesite.png"
+    },
+    "minecraft:tuff_stairs": {
+      "id": 135,
+      "hytopiaBlock": "tuff_stairs",
+      "textureUri": "blocks/tuff_stairs.png"
+    },
+    "minecraft:white_stained_glass_pane": {
+      "id": 136,
+      "hytopiaBlock": "white_stained_glass_pane",
+      "textureUri": "blocks/white_stained_glass_pane.png"
+    },
+    "minecraft:lantern": {
+      "id": 137,
+      "hytopiaBlock": "lantern",
+      "textureUri": "blocks/lantern.png"
+    },
+    "minecraft:spruce_leaves": {
+      "id": 138,
+      "hytopiaBlock": "spruce_leaves",
+      "textureUri": "blocks/spruce_leaves.png"
+    },
+    "minecraft:polished_andesite_slab": {
+      "id": 139,
+      "hytopiaBlock": "polished_andesite_slab",
+      "textureUri": "blocks/polished_andesite_slab.png"
+    },
+    "minecraft:polished_andesite_stairs": {
+      "id": 140,
+      "hytopiaBlock": "polished_andesite_stairs",
+      "textureUri": "blocks/polished_andesite_stairs.png"
+    },
+    "minecraft:flowering_azalea_leaves": {
+      "id": 141,
+      "hytopiaBlock": "flowering_azalea_leaves",
+      "textureUri": "blocks/flowering_azalea_leaves.png"
+    },
+    "minecraft:hanging_roots": {
+      "id": 142,
+      "hytopiaBlock": "hanging_roots",
+      "textureUri": "blocks/hanging_roots.png"
+    },
+    "minecraft:spruce_trapdoor": {
+      "id": 143,
+      "hytopiaBlock": "spruce_trapdoor",
+      "textureUri": "blocks/spruce_trapdoor.png"
+    },
+    "minecraft:dark_oak_button": {
+      "id": 144,
+      "hytopiaBlock": "dark_oak_button",
+      "textureUri": "blocks/dark_oak_button.png"
+    },
+    "minecraft:stripped_spruce_log": {
+      "id": 145,
+      "hytopiaBlock": "stripped_spruce_log",
+      "textureUri": "blocks/stripped_spruce_log.png"
+    },
+    "minecraft:white_concrete_powder": {
+      "id": 146,
+      "hytopiaBlock": "white_concrete_powder",
+      "textureUri": "blocks/white_concrete_powder.png"
+    },
+    "minecraft:calcite": {
+      "id": 147,
+      "hytopiaBlock": "calcite",
+      "textureUri": "blocks/calcite.png"
+    },
+    "minecraft:white_concrete": {
+      "id": 148,
+      "hytopiaBlock": "white_concrete",
+      "textureUri": "blocks/white_concrete.png"
+    },
+    "minecraft:dark_oak_stairs": {
+      "id": 149,
+      "hytopiaBlock": "dark_oak_stairs",
+      "textureUri": "blocks/dark_oak_stairs.png"
+    },
+    "minecraft:dark_oak_slab": {
+      "id": 150,
+      "hytopiaBlock": "dark_oak_slab",
+      "textureUri": "blocks/dark_oak_slab.png"
+    },
+    "minecraft:spruce_log": {
+      "id": 151,
+      "hytopiaBlock": "spruce_log",
+      "textureUri": "blocks/spruce_log.png"
+    },
+    "minecraft:dark_oak_fence": {
+      "id": 152,
+      "hytopiaBlock": "dark_oak_fence",
+      "textureUri": "blocks/dark_oak_fence.png"
+    },
+    "minecraft:cobbled_deepslate_wall": {
+      "id": 153,
+      "hytopiaBlock": "cobbled_deepslate_wall",
+      "textureUri": "blocks/cobbled_deepslate_wall.png"
+    },
+    "minecraft:cherry_sapling": {
+      "id": 154,
+      "hytopiaBlock": "cherry_sapling",
+      "textureUri": "blocks/cherry_sapling.png"
+    },
+    "minecraft:blue_orchid": {
+      "id": 155,
+      "hytopiaBlock": "blue_orchid",
+      "textureUri": "blocks/blue_orchid.png"
+    },
+    "minecraft:stripped_spruce_wood": {
+      "id": 156,
+      "hytopiaBlock": "stripped_spruce_wood",
+      "textureUri": "blocks/stripped_spruce_wood.png"
+    },
+    "minecraft:mud_brick_slab": {
+      "id": 157,
+      "hytopiaBlock": "mud_brick_slab",
+      "textureUri": "blocks/mud_brick_slab.png"
+    }
+  }
+}
