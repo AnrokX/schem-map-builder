@@ -449,10 +449,6 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     // Check for classic WorldEdit format (.schematic)
     else if (schematic.Blocks && schematic.Data) {
       formatType = "classic_worldedit";
-    } 
-    // Check for litematica format (.litematic)
-    else if (schematic.Regions) {
-      formatType = "litematica";
     }
     
     console.log(`Detected schematic format: ${formatType}`);
@@ -850,111 +846,6 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
               }
             }
           }
-        }
-        break;
-        
-      case "litematica":
-        // Handle litematica format
-        console.log("Processing litematica format");
-        
-        try {
-          // Get the first region
-          const regionName = Object.keys(schematic.Regions.value)[0];
-          if (!regionName) {
-            throw new Error("No regions found in litematica file");
-          }
-          
-          const region = schematic.Regions.value[regionName].value;
-          console.log('Region keys:', Object.keys(region));
-          
-          width = Math.abs(region.Size?.value?.x?.value || 0);
-          height = Math.abs(region.Size?.value?.y?.value || 0);
-          length = Math.abs(region.Size?.value?.z?.value || 0);
-          
-          console.log(`Litematica dimensions: ${width}x${height}x${length}`);
-          
-          // Get palette and block data from region
-          const litematicaPalette = region.BlockStatePalette?.value?.value || [];
-          const litematicaBlockData = region.BlockStates?.value || [];
-          
-          console.log(`Litematica palette size: ${litematicaPalette.length}`);
-          
-          // Process blocks for litematica format - simplified approach
-          // Instead of bit-shifting, which can be problematic in browser environments,
-          // we'll use a simpler algorithm that's more browser-compatible
-          let blockCount = 0;
-          
-          for (let y = 0; y < height; y++) {
-            for (let z = 0; z < length; z++) {
-              for (let x = 0; x < width; x++) {
-                const index = y * (width * length) + z * width + x;
-                
-                // Use a more direct approach to get the block from the data
-                let blockId = 0;
-                try {
-                  // Use a simple index-based approach instead of bit manipulation
-                  blockId = litematicaBlockData[index] || 0;
-                } catch (e) {
-                  console.warn(`Error accessing block data at index ${index}`, e);
-                  continue;
-                }
-                
-                if (blockId >= litematicaPalette.length) continue;
-                
-                // Get block info from palette
-                const blockInfo = litematicaPalette[blockId];
-                if (!blockInfo) continue;
-                
-                let blockName = '';
-                try {
-                  blockName = blockInfo.Name?.value || '';
-                } catch (e) {
-                  console.warn('Error getting block name from palette', e);
-                  continue;
-                }
-                
-                if (!blockName || blockName === 'minecraft:air') continue;
-                
-                // Convert to HYTOPIA block ID
-                let hytopiaBlockId;
-                
-                // Try to find in mapping - exact match first
-                if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                  hytopiaBlockId = blockMapping.blocks[blockName].id;
-                } else {
-                  // Try with different formats
-                  const baseName = blockName.split('[')[0]; // Remove block states
-                  
-                  if (blockMapping.blocks && blockMapping.blocks[baseName]) {
-                    hytopiaBlockId = blockMapping.blocks[baseName].id;
-                  } else {
-                    // Use fallback mapping
-                    hytopiaBlockId = getFallbackBlockId(blockName);
-                  }
-                }
-                
-                // Always use a default fallback if we still don't have a valid ID
-                if (!hytopiaBlockId) {
-                  hytopiaBlockId = fallbackMapping.unknown.id;
-                  console.log(`Using default stone block for ${blockName} as last resort`);
-                }
-                
-                // Add to terrain data with correct coordinates
-                // Adjust coordinates to center the schematic
-                const finalX = x - Math.floor(width / 2);
-                const finalY = y;
-                const finalZ = z - Math.floor(length / 2);
-                
-                hytopiaMap.blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
-                blockCount++;
-              }
-            }
-          }
-          
-          console.log(`Processed ${blockCount} blocks for litematica format`);
-        } catch (error) {
-          console.error('Error processing litematica format:', error);
-          throw new Error(`Failed to process litematica format: ${error.message}`);
         }
         break;
         
