@@ -560,13 +560,14 @@ async function analyzeRegionFile(buffer) {
                     }
 
                     // Get the sections from the parsed NBT data
-                    const sections = chunkData.parsed?.value?.sections?.value?.value || [];
+                    const sections = findSectionsRecursively(chunkData.parsed?.value) || [];
                     
                     if (sections.length > 0 && chunkX === 0 && chunkZ === 0) {
                         console.log(`\nFound ${sections.length} sections in chunk`);
-                        console.log('First section structure:', safeStringifyChunk(sections[0], 500));
+                        console.log('Section Y values:', sections.map(s => s.Y?.value).join(', '));
                     }
 
+                    let foundNonAirBlocks = false;
                     for (const section of sections) {
                         if (!section) continue;
                         
@@ -582,11 +583,18 @@ async function analyzeRegionFile(buffer) {
                             data = blockStates.data.value.value;
                         }
                         
-                        if (chunkX === 0 && chunkZ === 0 && section === sections[0]) {
-                            console.log(`\nSection Y=${sectionY}`);
-                            console.log('Block states:', safeStringifyChunk(blockStates, 200));
-                            console.log('Palette entries:', palette.length);
-                            if (palette.length > 0) {
+                        // Only log the first non-air section we find
+                        const hasNonAirBlocks = palette.some(entry => {
+                            const blockName = typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
+                            return blockName && blockName !== 'minecraft:air';
+                        });
+
+                        if (hasNonAirBlocks) {
+                            if (!foundNonAirBlocks) {
+                                foundNonAirBlocks = true;
+                                console.log(`\nFound section with non-air blocks at Y=${sectionY}`);
+                                console.log('Block states:', safeStringifyChunk(blockStates, 500));
+                                console.log('Palette entries:', palette.length);
                                 palette.forEach((entry, idx) => {
                                     if (entry.Name) {
                                         console.log(`Palette entry ${idx}: ${entry.Name.value}`);
@@ -594,11 +602,16 @@ async function analyzeRegionFile(buffer) {
                                         console.log(`Palette entry ${idx}:`, safeStringifyChunk(entry, 200));
                                     }
                                 });
+                                console.log('Data array:', data ? `length=${data.length}` : 'undefined');
+                                if (data && data.length > 0) {
+                                    console.log('First few data values:', data.slice(0, 5));
+                                }
                             }
-                            console.log('Data array:', data ? `length=${data.length}` : 'undefined');
-                            if (data && data.length > 0) {
-                                console.log('First few data values:', data.slice(0, 5));
+                        } else {
+                            if (chunkX === 0 && chunkZ === 0 && sectionY === sections[0].Y?.value) {
+                                console.log(`\nSection Y=${sectionY} (air only)`);
                             }
+                            continue;
                         }
 
                         // Skip if no blocks defined
