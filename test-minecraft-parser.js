@@ -261,6 +261,172 @@ function findSectionsRecursively(obj, depth = 0, maxDepth = 5) {
     return null;
 }
 
+// Add a new class for storing block data for visualization
+const BlockDataCollector = {
+    blocksByType: {},  // Stores blocks grouped by type with coordinates
+    blocksByRegion: {}, // Stores blocks organized by 16x16x16 regions
+    chunkData: {},     // Stores chunk-level data
+    totalBlockCount: 0,
+    maxHeight: 0,
+    minHeight: 999,
+    
+    // Track a block with its position and attributes
+    addBlock: function(blockName, x, y, z, attributes = {}) {
+        this.totalBlockCount++;
+        
+        // Update height bounds
+        this.maxHeight = Math.max(this.maxHeight, y);
+        this.minHeight = Math.min(this.minHeight, y);
+        
+        // Store by block type
+        if (!this.blocksByType[blockName]) {
+            this.blocksByType[blockName] = [];
+        }
+        this.blocksByType[blockName].push({x, y, z, ...attributes});
+        
+        // Store by region (16x16x16 volumes)
+        const regionX = Math.floor(x / 16);
+        const regionY = Math.floor(y / 16);
+        const regionZ = Math.floor(z / 16);
+        const regionKey = `${regionX},${regionY},${regionZ}`;
+        
+        if (!this.blocksByRegion[regionKey]) {
+            this.blocksByRegion[regionKey] = {
+                x: regionX, y: regionY, z: regionZ,
+                blocks: {}
+            };
+        }
+        
+        if (!this.blocksByRegion[regionKey].blocks[blockName]) {
+            this.blocksByRegion[regionKey].blocks[blockName] = [];
+        }
+        
+        this.blocksByRegion[regionKey].blocks[blockName].push({
+            x: x % 16, y: y % 16, z: z % 16, ...attributes
+        });
+        
+        // Store chunk data
+        const chunkX = Math.floor(x / 16);
+        const chunkZ = Math.floor(z / 16);
+        const chunkKey = `${chunkX},${chunkZ}`;
+        
+        if (!this.chunkData[chunkKey]) {
+            this.chunkData[chunkKey] = {
+                x: chunkX, z: chunkZ,
+                blockCount: 0,
+                blockTypes: {},
+                heightMap: {}
+            };
+        }
+        
+        this.chunkData[chunkKey].blockCount++;
+        if (!this.chunkData[chunkKey].blockTypes[blockName]) {
+            this.chunkData[chunkKey].blockTypes[blockName] = 0;
+        }
+        this.chunkData[chunkKey].blockTypes[blockName]++;
+        
+        // Update chunk heightmap
+        if (!this.chunkData[chunkKey].heightMap[`${x % 16},${z % 16}`] ||
+            this.chunkData[chunkKey].heightMap[`${x % 16},${z % 16}`] < y) {
+            this.chunkData[chunkKey].heightMap[`${x % 16},${z % 16}`] = y;
+        }
+    },
+    
+    // Generate a report about the collected data
+    generateVisualizationReport: function() {
+        // Count regions and chunks
+        const regionCount = Object.keys(this.blocksByRegion).length;
+        const chunkCount = Object.keys(this.chunkData).length;
+        
+        // Find most populated regions
+        const topRegions = Object.entries(this.blocksByRegion)
+            .map(([key, region]) => {
+                const blockCount = Object.values(region.blocks)
+                    .reduce((sum, blocks) => sum + blocks.length, 0);
+                return { key, x: region.x, y: region.y, z: region.z, blockCount };
+            })
+            .sort((a, b) => b.blockCount - a.blockCount)
+            .slice(0, 5);
+        
+        // Find block type distribution
+        const blockTypeDistribution = Object.entries(this.blocksByType)
+            .map(([blockName, blocks]) => ({
+                blockName,
+                count: blocks.length,
+                percentage: (blocks.length / this.totalBlockCount * 100).toFixed(2)
+            }))
+            .sort((a, b) => b.count - a.count);
+        
+        // Generate and return the report
+        let report = '\n=== Block Visualization Data Report ===\n';
+        report += `Total Blocks: ${this.totalBlockCount}\n`;
+        report += `Unique Block Types: ${Object.keys(this.blocksByType).length}\n`;
+        report += `Height Range: Y=${this.minHeight} to Y=${this.maxHeight}\n`;
+        report += `Regions (16x16x16): ${regionCount}\n`;
+        report += `Chunks (16x256x16): ${chunkCount}\n\n`;
+        
+        report += 'Top 5 Most Populated Regions:\n';
+        topRegions.forEach((region, i) => {
+            report += `${i+1}. Region (${region.x},${region.y},${region.z}): ${region.blockCount} blocks\n`;
+        });
+        
+        report += '\nBlock Type Distribution (Top 10):\n';
+        blockTypeDistribution.slice(0, 10).forEach((blockType, i) => {
+            report += `${i+1}. ${blockType.blockName}: ${blockType.count} (${blockType.percentage}%)\n`;
+        });
+        
+        return report;
+    },
+    
+    // Export data for visualization or further processing
+    exportData: function(outputPath) {
+        try {
+            // Create a simplified version of the data for export
+            const exportData = {
+                metadata: {
+                    totalBlocks: this.totalBlockCount,
+                    uniqueBlockTypes: Object.keys(this.blocksByType).length,
+                    heightRange: { min: this.minHeight, max: this.maxHeight }
+                },
+                blockTypeStats: Object.entries(this.blocksByType).map(([name, blocks]) => ({
+                    name, count: blocks.length
+                })),
+                // Export top 10 most common blocks with their positions
+                topBlocks: Object.entries(this.blocksByType)
+                    .sort((a, b) => b[1].length - a[1].length)
+                    .slice(0, 10)
+                    .map(([name, blocks]) => ({
+                        name,
+                        count: blocks.length,
+                        positions: blocks.slice(0, 1000) // Limit to 1000 positions per block type
+                    })),
+                // Export heightmap data (compressed format)
+                heightMap: Object.entries(this.chunkData)
+                    .reduce((map, [chunkKey, chunk]) => {
+                        map[chunkKey] = chunk.heightMap;
+                        return map;
+                    }, {})
+            };
+            
+            fs.writeFileSync(outputPath, JSON.stringify(exportData, null, 2));
+            console.log(`Exported visualization data to ${outputPath}`);
+            return true;
+        } catch (error) {
+            console.error('Error exporting visualization data:', error);
+            return false;
+        }
+    },
+    
+    reset: function() {
+        this.blocksByType = {};
+        this.blocksByRegion = {};
+        this.chunkData = {};
+        this.totalBlockCount = 0;
+        this.maxHeight = 0;
+        this.minHeight = 999;
+    }
+};
+
 // Main test function
 async function testMinecraftWorldParsing(worldFilePath) {
     try {
@@ -268,6 +434,7 @@ async function testMinecraftWorldParsing(worldFilePath) {
         blockStatistics.reset();
         unmappedBlockTracker.reset();
         dynamicBlockMappings.clear();
+        BlockDataCollector.reset(); // Reset our visualization data collector
 
         console.log('Reading world file:', worldFilePath);
         const buffer = await readFileAsBuffer(worldFilePath);
@@ -346,6 +513,17 @@ async function testMinecraftWorldParsing(worldFilePath) {
         
         // After processing all regions, print statistics
         console.log(blockStatistics.generateReport());
+        
+        // Print visualization data report
+        console.log(BlockDataCollector.generateVisualizationReport());
+        
+        // Export visualization data
+        const outputDir = './output';
+        if (!fs.existsSync(outputDir)){
+            fs.mkdirSync(outputDir);
+        }
+        const outputPath = path.join(outputDir, 'visualization_data.json');
+        BlockDataCollector.exportData(outputPath);
         
         // If there are unmapped blocks, show those too
         if (Object.keys(unmappedBlockTracker.blocks).length > 0) {
@@ -536,13 +714,35 @@ async function analyzeRegionFile(buffer) {
                                 const shiftAmount = BigInt(j * bitsPerBlock);
                                 const index = Number((longValue >> shiftAmount) & mask);
                                 const block = palette[index % palette.length];
-                                const blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
+                                
+                                // Extract block name and properties
+                                let blockName, blockProperties = {};
+                                
+                                if (typeof block === 'string') {
+                                    blockName = block;
+                                } else {
+                                    blockName = block.Name?.value || block.name?.value;
+                                    
+                                    // Extract block properties if available
+                                    const propsObj = block.Properties?.value || block.properties?.value;
+                                    if (propsObj) {
+                                        for (const propKey in propsObj) {
+                                            if (propsObj[propKey] && propsObj[propKey].value !== undefined) {
+                                                blockProperties[propKey] = propsObj[propKey].value;
+                                            }
+                                        }
+                                    }
+                                }
                                 
                                 if (blockName && blockName !== 'minecraft:air') {
                                     const worldX = chunkX * 16 + (blockIndex % 16);
                                     const worldY = sectionY * 16 + Math.floor(blockIndex / 256);
                                     const worldZ = chunkZ * 16 + Math.floor((blockIndex % 256) / 16);
                                     
+                                    // Track in BlockDataCollector for visualization
+                                    BlockDataCollector.addBlock(blockName, worldX, worldY, worldZ, blockProperties);
+                                    
+                                    // Track in our existing statistics
                                     blockStatistics.trackBlock(blockName, worldY);
                                     
                                     if (!blocks[worldY]) blocks[worldY] = {};
@@ -565,6 +765,12 @@ async function analyzeRegionFile(buffer) {
     
     return blocks;
 }
+
+// At the end of the file, add exports
+module.exports = {
+    testMinecraftWorldParsing,
+    BlockDataCollector
+};
 
 // Run the test if this file is run directly
 if (require.main === module) {

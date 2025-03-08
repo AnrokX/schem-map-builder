@@ -81,3 +81,97 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+# Enhanced Minecraft World Parser
+
+A powerful parser for Minecraft world files (.mcworld, .zip) that extracts detailed information about block types, positions, and world structure.
+
+## Features
+
+- **Deep Block Data Extraction**: Extract detailed information about block types, their positions, and properties
+- **Spatial Organization**: Blocks are organized by type, region (16x16x16), and chunk for efficient analysis
+- **Height Mapping**: Generate height maps of the world's terrain
+- **Block Distribution Analysis**: Analyze how blocks are distributed throughout the world
+- **Data Export**: Export the parsed data as JSON for use in visualization or further analysis
+- **ASCII Visualization**: Simple text-based visualization of height maps and block distribution
+
+## Installation
+
+1. Clone this repository
+2. Install dependencies:
+   ```
+   npm install
+   ```
+
+## Required Dependencies
+
+```
+npm install jszip prismarine-nbt pako
+```
+
+## Usage
+
+### Parsing a Minecraft World
+
+```
+node test-minecraft-parser-runner.js <path-to-minecraft-world-file>
+```
+
+Example:
+```
+node test-minecraft-parser-runner.js ./worlds/my_world.mcworld
+```
+
+This will:
+1. Parse the Minecraft world file
+2. Extract detailed block data
+3. Generate statistics about block types and distribution
+4. Save the visualization data to `./output/visualization_data.json`
+
+### Visualizing the Data
+
+After parsing a world, you can visualize the data using:
+
+```
+node visualize-blocks.js
+```
+
+This will:
+1. Load the visualization data from `./output/visualization_data.json`
+2. Display statistics about the world
+3. Show a histogram of block height distribution
+4. Generate an ASCII visualization of the height map
+
+## Output Data Format
+
+The `visualization_data.json` file contains:
+
+- **metadata**: Overall statistics about the world
+- **blockTypeStats**: Statistics about each block type
+- **topBlocks**: Detailed information about the most common blocks, including positions
+- **heightMap**: Height map data organized by chunk
+
+## Using the Block Data Collector in Your Own Project
+
+You can import and use the BlockDataCollector in your own projects:
+
+```javascript
+const { BlockDataCollector } = require('./test-minecraft-parser');
+
+// Track a block
+BlockDataCollector.addBlock('minecraft:stone', x, y, z, { variant: 'granite' });
+
+// Generate a report
+const report = BlockDataCollector.generateVisualizationReport();
+console.log(report);
+
+// Export data
+BlockDataCollector.exportData('./my-output.json');
+```
+
+## Future Enhancements
+
+- 3D visualization using WebGL or Three.js
+- More detailed block property extraction
+- Structure detection (buildings, trees, caves)
+- Biome analysis and correlation with block types
