@@ -586,40 +586,43 @@ async function analyzeRegionFile(buffer) {
                         // Convert longArray data into block indices
                         let blockIndices = [];
                         if (Array.isArray(data)) {
-                            // Each longArray entry contains multiple indices packed together
+                            // Calculate bits needed per block based on palette size
                             const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
                             const blocksPerLong = Math.floor(64 / bitsPerBlock);
                             const maskBits = (1n << BigInt(bitsPerBlock)) - 1n;
 
-                            let currentIndex = 0;
+                            // Process each long integer in the data array
                             for (const longValue of data) {
                                 let value;
                                 if (Array.isArray(longValue)) {
                                     // Handle split long values [upper32, lower32]
                                     value = (BigInt(longValue[0]) << 32n) | BigInt(longValue[1]);
                                 } else if (typeof longValue === 'object' && longValue.value !== undefined) {
-                                    // Handle NBT long values
                                     value = BigInt(longValue.value[0]) << 32n | BigInt(longValue.value[1]);
                                 } else {
                                     value = BigInt(longValue);
                                 }
 
-                                // Extract indices from left to right (this is the key change)
-                                let remainingBits = 64;
-                                while (remainingBits >= bitsPerBlock && blockIndices.length < 4096) {
-                                    remainingBits -= bitsPerBlock;
-                                    const index = Number((value >> BigInt(remainingBits)) & maskBits);
-                                    blockIndices[currentIndex++] = index;
+                                // Extract indices from the packed data
+                                for (let i = 0; i < blocksPerLong && blockIndices.length < 4096; i++) {
+                                    const shift = BigInt(bitsPerBlock * (blocksPerLong - 1 - i));
+                                    const index = Number((value >> shift) & maskBits);
+                                    blockIndices.push(index);
                                 }
                             }
 
-                            // If we have a partial section, fill remaining with air (index 0)
-                            while (blockIndices.length < 4096) {
-                                blockIndices[currentIndex++] = 0;
+                            // Log some debug info for the first non-empty section
+                            if (!foundNonAirBlocks && blockIndices.length > 0) {
+                                console.log('\nDebug: Block Data Analysis');
+                                console.log(`Bits per block: ${bitsPerBlock}`);
+                                console.log(`Blocks per long: ${blocksPerLong}`);
+                                console.log(`Total indices extracted: ${blockIndices.length}`);
+                                console.log('First few indices:', blockIndices.slice(0, 10));
+                                console.log('First few blocks:', blockIndices.slice(0, 10).map(idx => {
+                                    const entry = palette[idx];
+                                    return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
+                                }));
                             }
-                        } else if (palette.length === 1) {
-                            // If there's only one block type and no data array, fill with index 0
-                            blockIndices = new Array(4096).fill(0);
                         }
 
                         // Only log the first non-air section we find
