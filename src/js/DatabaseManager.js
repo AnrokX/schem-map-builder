@@ -194,4 +194,28 @@ export class DatabaseManager {
       throw error;
     }
   }
+
+  static async getBlockCount() {
+    const db = await this.getConnection();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.TERRAIN, 'readonly');
+      const store = transaction.objectStore(STORES.TERRAIN);
+      const request = store.count();
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  static async clearBlocks() {
+    return this.clearStore(STORES.TERRAIN);
+  }
+
+  static async storeBlocks(blocks) {
+    if (!blocks || Object.keys(blocks).length === 0) {
+      console.warn('No blocks provided to store');
+      return;
+    }
+    return this.bulkAddToStore(STORES.TERRAIN, blocks);
+  }
 }
