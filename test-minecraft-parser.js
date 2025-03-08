@@ -582,7 +582,40 @@ async function analyzeRegionFile(buffer) {
                         if (Array.isArray(blockStates.data?.value?.value)) {
                             data = blockStates.data.value.value;
                         }
-                        
+
+                        // Convert longArray data into block indices
+                        let blockIndices = [];
+                        if (Array.isArray(data)) {
+                            // Each longArray entry contains multiple indices packed together
+                            const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
+                            const blocksPerLong = Math.floor(64 / bitsPerBlock);
+                            const maskBits = (1n << BigInt(bitsPerBlock)) - 1n;
+
+                            let currentIndex = 0;
+                            for (const longValue of data) {
+                                let value;
+                                if (Array.isArray(longValue)) {
+                                    // Handle split long values [upper32, lower32]
+                                    value = (BigInt(longValue[0]) << 32n) | BigInt(longValue[1]);
+                                } else if (typeof longValue === 'object' && longValue.value !== undefined) {
+                                    // Handle NBT long values
+                                    value = BigInt(longValue.value[0]) << 32n | BigInt(longValue.value[1]);
+                                } else {
+                                    value = BigInt(longValue);
+                                }
+
+                                // Extract indices from right to left
+                                for (let i = 0; i < blocksPerLong && blockIndices.length < 4096; i++) {
+                                    const index = Number(value & maskBits);
+                                    blockIndices[currentIndex++] = index;
+                                    value = value >> BigInt(bitsPerBlock);
+                                }
+                            }
+                        } else if (palette.length === 1) {
+                            // If there's only one block type and no data array, fill with index 0
+                            blockIndices = new Array(4096).fill(0);
+                        }
+
                         // Only log the first non-air section we find
                         const hasNonAirBlocks = palette.some(entry => {
                             const blockName = typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
@@ -596,15 +629,17 @@ async function analyzeRegionFile(buffer) {
                                 console.log('Block states:', safeStringifyChunk(blockStates, 500));
                                 console.log('Palette entries:', palette.length);
                                 palette.forEach((entry, idx) => {
-                                    if (entry.Name) {
-                                        console.log(`Palette entry ${idx}: ${entry.Name.value}`);
-                                    } else {
-                                        console.log(`Palette entry ${idx}:`, safeStringifyChunk(entry, 200));
-                                    }
+                                    const blockName = typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
+                                    console.log(`Palette entry ${idx}: ${blockName}`);
                                 });
-                                console.log('Data array:', data ? `length=${data.length}` : 'undefined');
-                                if (data && data.length > 0) {
-                                    console.log('First few data values:', data.slice(0, 5));
+                                console.log('Block indices array:', blockIndices ? `length=${blockIndices.length}` : 'undefined');
+                                if (blockIndices && blockIndices.length > 0) {
+                                    console.log('First few indices:', blockIndices.slice(0, 5));
+                                    // Log what blocks these indices map to
+                                    console.log('First few blocks:', blockIndices.slice(0, 5).map(idx => {
+                                        const entry = palette[idx];
+                                        return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
+                                    }));
                                 }
                             }
                         } else {
@@ -614,68 +649,15 @@ async function analyzeRegionFile(buffer) {
                             continue;
                         }
 
-                        // Skip if no blocks defined
-                        if (!palette.length) {
-                            if (chunkX === 0 && chunkZ === 0) {
-                                console.log('Skipping section - no palette');
-                            }
-                            continue;
-                        }
-
-                        // If no data array but we have a palette with one entry, it means the entire section is that block
-                        if (!data || !data.length) {
-                            if (palette.length === 1) {
-                                const block = palette[0];
-                                let blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
-                                if (blockName && blockName !== 'minecraft:air') {
-                                    // Fill entire section with this block
-                                    for (let y = 0; y < 16; y++) {
-                                        const worldY = sectionY * 16 + y;
-                                        for (let z = 0; z < 16; z++) {
-                                            for (let x = 0; x < 16; x++) {
-                                                const worldX = chunkX * 16 + x;
-                                                const worldZ = chunkZ * 16 + z;
-                                                
-                                                if (chunkX === 0 && chunkZ === 0) {
-                                                    console.log(`Found uniform block ${blockName} at ${worldX},${worldY},${worldZ}`);
-                                                }
-                                                
-                                                const mappedId = getFallbackBlockId(blockName, blockMapping);
-                                                blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
-                                                
-                                                let mappingType = 'fallback';
-                                                if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                                                    mappingType = 'exact';
-                                                } else if (blockMapping.blocks && blockMapping.blocks[`minecraft:${blockName.replace('minecraft:', '')}`]) {
-                                                    mappingType = 'prefix';
-                                                } else if (blockMapping.blocks && blockMapping.blocks[blockName.split('[')[0]]) {
-                                                    mappingType = 'base';
-                                                }
-                                                
-                                                blockStatistics.trackBlock(blockName, worldY, mappingType);
-                                            }
-                                        }
-                                    }
-                                } else if (chunkX === 0 && chunkZ === 0) {
-                                    console.log('Skipping uniform air section');
-                                }
-                                continue;
-                            } else {
-                                if (chunkX === 0 && chunkZ === 0) {
-                                    console.log('Skipping section - no data array');
-                                }
-                                continue;
-                            }
-                        }
-
-                        // Process blocks in this section
+                        // Process blocks in this section using the decoded indices
                         for (let y = 0; y < 16; y++) {
                             const worldY = sectionY * 16 + y;
                             for (let z = 0; z < 16; z++) {
                                 for (let x = 0; x < 16; x++) {
                                     const index = y * 256 + z * 16 + x;
-                                    const paletteIndex = data[index] || 0;
+                                    if (index >= blockIndices.length) continue;
                                     
+                                    const paletteIndex = blockIndices[index];
                                     if (paletteIndex >= palette.length) continue;
                                     
                                     const block = palette[paletteIndex];
