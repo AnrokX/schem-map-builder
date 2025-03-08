@@ -24,6 +24,7 @@ let blockTypesArray = (() => {
 			return;
 		}
 
+		// Match both single textures and directional textures
 		const match = path.match(/^\.\/(.+?)(\/[+-][xyz])?\.png$/);
 		if (match) {
 			const [, fullName, side] = match;
@@ -36,22 +37,24 @@ let blockTypesArray = (() => {
 					name: blockName,
 					textureUri: `./assets/blocks/${blockName}.png`,
 					sideTextures: {},
+					isMultiTexture: false
 				});
 			}
 
 			if (side) {
-				const sideKey = side.slice(1);
-				blockMap.get(blockName).sideTextures[sideKey] = `./assets/blocks/${blockName}${side}.png`;
+				// If this is a directional texture, update the block to use it
+				const block = blockMap.get(blockName);
+				block.isMultiTexture = true;
+				block.sideTextures[side.slice(1)] = `./assets/blocks/${blockName}${side}.png`;
+				// Update main textureUri to use the +y (top) texture if available, or first available side
+				if (side === '/+y' || !block.textureUri.includes('/')) {
+					block.textureUri = `./assets/blocks/${blockName}${side}.png`;
+				}
 			}
 		}
 	});
 
-	return Array.from(blockMap.values()).map((block) => ({
-		...block,
-		isMultiTexture: Object.keys(block.sideTextures).length > 0,
-		isEnvironment: false,
-		hasMissingTexture: block.textureUri === "./assets/blocks/error.png",
-	}));
+	return Array.from(blockMap.values());
 })();
 
 //// function to handle the adding/updating of a custom block

@@ -2,6 +2,7 @@ import { DatabaseManager, STORES } from "./DatabaseManager";
 import * as nbt from 'prismarine-nbt';
 import pako from 'pako';
 import { Buffer } from 'buffer';
+import { getBlockTypes } from './TerrainBuilder';
 
 // Global map to track dynamic block mappings for the session
 const dynamicBlockMappings = new Map();
@@ -28,23 +29,39 @@ const fallbackMapping = {
 
 // Create a tracker for unmapped blocks
 const unmappedBlockTracker = {
-  blocks: {},  // Will hold info about each unmapped block type
+  blocks: {},
   
-  // Track an unmapped block
-  trackBlock: function(blockName, position, fallbackId) {
-    // Create entry if it doesn't exist
+  trackBlock: function(blockName, position, blockId, isMapped = true) {
     if (!this.blocks[blockName]) {
+      const simpleName = blockName.replace('minecraft:', '').split('[')[0];
+      const blockTypes = getBlockTypes();
+      
+      // Check for both single and directional textures
+      const matchingBlock = blockTypes.find(block => {
+        if (block.isMultiTexture) {
+          // For directional textures, check if any side matches
+          return Object.values(block.sideTextures).some(texturePath => 
+            texturePath.includes(`/assets/blocks/${simpleName}/`)
+          );
+        } else {
+          // For single textures
+          return block.textureUri === `/assets/blocks/${simpleName}.png`;
+        }
+      });
+
       this.blocks[blockName] = {
         count: 0,
         positions: [],
-        fallbackId: fallbackId
+        blockId: matchingBlock ? matchingBlock.id : blockId,
+        isMapped: matchingBlock ? true : isMapped,
+        fallbackId: matchingBlock ? matchingBlock.id : blockId,
+        textureUri: matchingBlock ? matchingBlock.textureUri : null,
+        isMultiTexture: matchingBlock ? matchingBlock.isMultiTexture : false,
+        sideTextures: matchingBlock ? matchingBlock.sideTextures : {}
       };
     }
     
-    // Increment counter
     this.blocks[blockName].count++;
-    
-    // Store sample positions (up to 5)
     if (this.blocks[blockName].positions.length < 5) {
       this.blocks[blockName].positions.push(position);
     }
@@ -317,9 +334,9 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
         const finalZ = z - Math.floor(length / 2) + offsetZ;
         
         // Track unmapped block if necessary
-        if (isUnmappedBlock) {
-          unmappedBlockTracker.trackBlock(blockName, `${finalX},${finalY},${finalZ}`, hytopiaBlockId);
-        }
+
+        unmappedBlockTracker.trackBlock(blockName, `${finalX},${finalY},${finalZ}`, hytopiaBlockId, !isUnmappedBlock);
+
         
         blocks[`${finalX},${finalY},${finalZ}`] = hytopiaBlockId;
       }
