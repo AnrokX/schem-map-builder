@@ -604,12 +604,18 @@ async function analyzeRegionFile(buffer) {
                                     value = BigInt(longValue);
                                 }
 
-                                // Extract indices from right to left
-                                for (let i = 0; i < blocksPerLong && blockIndices.length < 4096; i++) {
-                                    const index = Number(value & maskBits);
+                                // Extract indices from left to right (this is the key change)
+                                let remainingBits = 64;
+                                while (remainingBits >= bitsPerBlock && blockIndices.length < 4096) {
+                                    remainingBits -= bitsPerBlock;
+                                    const index = Number((value >> BigInt(remainingBits)) & maskBits);
                                     blockIndices[currentIndex++] = index;
-                                    value = value >> BigInt(bitsPerBlock);
                                 }
+                            }
+
+                            // If we have a partial section, fill remaining with air (index 0)
+                            while (blockIndices.length < 4096) {
+                                blockIndices[currentIndex++] = 0;
                             }
                         } else if (palette.length === 1) {
                             // If there's only one block type and no data array, fill with index 0
@@ -640,6 +646,15 @@ async function analyzeRegionFile(buffer) {
                                         const entry = palette[idx];
                                         return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
                                     }));
+                                    // Also log some non-zero indices if we find any
+                                    const nonZeroIndices = blockIndices.slice(0, 100).map((idx, i) => idx === 0 ? null : [i, idx]).filter(x => x);
+                                    if (nonZeroIndices.length > 0) {
+                                        console.log('First few non-zero indices:', nonZeroIndices.slice(0, 5));
+                                        console.log('Blocks at those positions:', nonZeroIndices.slice(0, 5).map(([i, idx]) => {
+                                            const entry = palette[idx];
+                                            return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
+                                        }));
+                                    }
                                 }
                             }
                         } else {
