@@ -166,25 +166,19 @@ function getFallbackBlockId(blockName) {
 
 // Parse region file coordinates from filename (e.g., r.0.0.mca -> {x: 0, z: 0})
 function parseRegionCoordinates(filename) {
-  // Handle negative coordinates in filenames like "r.-1.2.mca"
   const match = filename.match(/r\.(-?\d+)\.(-?\d+)\.mca/);
-  if (!match) {
-    console.warn(`Invalid region filename format: ${filename}`);
-    return null;
+  if (match) {
+    return {
+      x: parseInt(match[1], 10),
+      z: parseInt(match[2], 10)
+    };
   }
-  
-  return {
-    x: parseInt(match[1], 10),
-    z: parseInt(match[2], 10)
-  };
+  return null;
 }
 
 // Function to read a 4-byte big-endian integer from buffer
 function readInt32BE(buffer, offset) {
-  return (buffer[offset] << 24) | 
-         (buffer[offset + 1] << 16) | 
-         (buffer[offset + 2] << 8) | 
-         buffer[offset + 3];
+    return (buffer[offset] << 24) | (buffer[offset + 1] << 16) | (buffer[offset + 2] << 8) | buffer[offset + 3];
 }
 
 function parseLongArray(nbtLongArray) {
@@ -317,57 +311,52 @@ function extractBlockStatesFromPackedLongArray(packedLongArray, bitsPerBlock, pa
 }
 
 // Helper function to recursively search for sections in the chunk data
-function findSectionsRecursively(obj, depth = 0, maxDepth = 5) {
-  // Prevent infinite recursion or excessive depth
-  if (!obj || typeof obj !== 'object' || depth > maxDepth) {
+function findSectionsRecursively(obj, depth = 0, maxDepth = 10) { // Increased maxDepth
+    if (!obj || typeof obj !== 'object' || depth > maxDepth) {
+        return null;
+    }
+
+    // Check if this object looks like a section
+    if (obj.Y !== undefined || obj.y !== undefined) {
+        const hasBlockData = obj.block_states || obj.BlockStates || 
+                           (obj['3 entries'] && obj['3 entries'].block_states);
+        if (hasBlockData) {
+            return [obj];
+        }
+    }
+
+    // Handle arrays
+    if (Array.isArray(obj)) {
+        // Check if this array contains section-like objects
+        if (obj.some(item => 
+            item && typeof item === 'object' && 
+            (item.Y !== undefined || item.y !== undefined || 
+             item['3 entries']?.Y !== undefined))) {
+            return obj;
+        }
+
+        // Check each item in the array
+        for (const item of obj) {
+            const found = findSectionsRecursively(item, depth + 1, maxDepth);
+            if (found) return found;
+        }
+    }
+
+    // Check all properties
+    for (const key in obj) {
+        // Special handling for "3 entries" nodes
+        if (key === '3 entries') {
+            const found = findSectionsRecursively(obj[key], depth + 1, maxDepth);
+            if (found) return found;
+        }
+        
+        if (obj[key] && typeof obj[key] === 'object') {
+            const found = findSectionsRecursively(obj[key], depth + 1, maxDepth);
+            if (found) return found;
+        }
+    }
+
     return null;
-  }
-  
-  // Direct checks for sections array
-  if (Array.isArray(obj)) {
-    // Check if this looks like a sections array (containing Y and blockstates)
-    if (obj.length > 0 && obj.some(item => 
-        item && typeof item === 'object' && 
-        (item.Y !== undefined || item.y !== undefined) && 
-        (item.BlockStates !== undefined || item.block_states !== undefined || item.Palette !== undefined || item.palette !== undefined))) {
-      return obj;
-    }
-    
-    // Check each item in the array
-    for (const item of obj) {
-      const found = findSectionsRecursively(item, depth + 1, maxDepth);
-      if (found) return found;
-    }
-    
-    return null;
-  }
-  
-  // Check direct section properties
-  if (obj.Sections && Array.isArray(obj.Sections)) {
-    return obj.Sections;
-  }
-  if (obj.sections && Array.isArray(obj.sections)) {
-    return obj.sections;
-  }
-  
-  // Look for a valid palette or block_states structure
-  const hasPalette = obj.Palette || obj.palette;
-  const hasBlockStates = obj.BlockStates || obj.block_states;
-  
-  if (hasPalette && hasBlockStates) {
-    // This looks like a single section - wrap it in an array
-    return [obj];
-  }
-  
-  // Recursively check all properties
-  for (const key in obj) {
-    if (obj[key] && typeof obj[key] === 'object') {
-      const found = findSectionsRecursively(obj[key], depth + 1, maxDepth);
-      if (found) return found;
-    }
-  }
-  
-  return null;
 }
 
 // Add this helper function to handle 1.21.4 format sections specifically
@@ -549,230 +538,102 @@ const processChunk = (chunk, blockMapping) => {
 
 // Extract blocks from chunk data
 function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
-  const blocks = {};
-  const chunkX = chunk.x;
-  const chunkZ = chunk.z;
-  
-  let sections = [];
-  
-  try {
-    // Handle multiple possible chunk structures
-    console.log(`Processing chunk at ${chunkX},${chunkZ}`);
+    const blocks = {};
     
-    // Check if the data is valid
-    if (!chunk.data) {
-      console.warn(`Empty chunk data for chunk ${chunkX},${chunkZ}`);
-      return blocks;
+    // Get the sections array - handle different possible paths
+    const sections = findSectionsRecursively(chunk?.data?.value);
+    
+    if (!sections || !Array.isArray(sections)) {
+        console.warn('No valid sections found in chunk');
+        return blocks;
     }
 
-    // DEBUG: Log the top-level keys for the first chunk to understand the structure
-    if (chunkX === chunk.data.xPos && chunkZ === chunk.data.zPos) {
-      console.log(`Chunk ${chunkX},${chunkZ} structure:`, {
-        hasLevel: !!chunk.data.Level,
-        hasData: !!chunk.data.Data,
-        topLevelKeys: Object.keys(chunk.data)
-      });
-    }
-    
-    // Try to find sections in different locations based on Minecraft version
-    
-    // 1. Minecraft 1.21+ format - Data.sections
-    if (chunk.data.Data && chunk.data.Data.sections) {
-      console.log(`Found 1.21+ format sections at Data.sections for chunk ${chunkX},${chunkZ}`);
-      sections = Array.isArray(chunk.data.Data.sections) ? 
-                chunk.data.Data.sections : 
-                Object.values(chunk.data.Data.sections);
-    }
-    // 2. Alternative 1.21+ format - Data.Sections
-    else if (chunk.data.Data && chunk.data.Data.Sections) {
-      console.log(`Found 1.21+ format sections at Data.Sections for chunk ${chunkX},${chunkZ}`);
-      // Add debug logging to inspect the sections data
-      console.log('Data.Sections content:', JSON.stringify(chunk.data.Data.Sections).substring(0, 200));
-      
-      // Handle both array and object formats
-      if (Array.isArray(chunk.data.Data.Sections)) {
-        sections = chunk.data.Data.Sections;
-      } else if (typeof chunk.data.Data.Sections === 'object') {
-        // Handle case where Sections might be an NBT-wrapped object
-        if (chunk.data.Data.Sections.value) {
-          sections = Array.isArray(chunk.data.Data.Sections.value) ? 
-                    chunk.data.Data.Sections.value :
-                    Object.values(chunk.data.Data.Sections.value);
-        } else {
-          sections = Object.values(chunk.data.Data.Sections);
-        }
-      }
-      
-      // Additional validation of sections
-      if (sections && sections.length > 0) {
-        console.log(`Found ${sections.length} sections, first section keys:`, 
-                    Object.keys(sections[0]));
-      }
-    }
-    // 3. Old format (pre-1.18) - Level.Sections
-    else if (chunk.data.Level && chunk.data.Level.Sections) {
-      console.log(`Found old format sections at Level.Sections for chunk ${chunkX},${chunkZ}`);
-      sections = chunk.data.Level.Sections;
-    }
-    // 4. Direct sections array
-    else if (Array.isArray(chunk.data.sections)) {
-      console.log(`Found sections at root.sections for chunk ${chunkX},${chunkZ}`);
-      sections = chunk.data.sections;
-    }
-    // 5. Direct Sections array
-    else if (Array.isArray(chunk.data.Sections)) {
-      console.log(`Found sections at root.Sections for chunk ${chunkX},${chunkZ}`);
-      sections = chunk.data.Sections;
-    }
-    
-    // If we still don't have sections, try a recursive search
-    if (!sections || sections.length === 0) {
-      sections = findSectionsRecursively(chunk.data);
-      if (sections && sections.length > 0) {
-        console.log(`Found ${sections.length} sections through recursive search in chunk ${chunkX},${chunkZ}`);
-      }
-    }
-    
-    // If we still don't have sections, log the chunk structure and return
-    if (!sections || sections.length === 0) {
-      // Enhanced debug logging
-      console.log('Full chunk data structure:', JSON.stringify(chunk.data).substring(0, 500));
-      console.warn(`No sections found in chunk ${chunkX},${chunkZ}. Chunk structure:`, {
-        hasLevel: !!chunk.data.Level,
-        levelKeys: chunk.data.Level ? Object.keys(chunk.data.Level) : [],
-        hasData: !!chunk.data.Data,
-        dataKeys: chunk.data.Data ? Object.keys(chunk.data.Data) : [],
-        topLevelKeys: Object.keys(chunk.data)
-      });
-      return blocks;
-    }
-    
-    console.log(`Processing ${sections.length} sections in chunk ${chunkX},${chunkZ}`);
-    
     // Process each section
-    for (const section of sections) {
-      if (!section) continue;
-      
-      // Get section Y coordinate
-      let sectionY = 0;
-      if (section.Y !== undefined) {
-        sectionY = typeof section.Y === 'object' ? section.Y.value : section.Y;
-      } else if (section.y !== undefined) {
-        sectionY = typeof section.y === 'object' ? section.y.value : section.y;
-      }
-      
-      // Get block states and palette
-      let palette = [];
-      let blockStates = [];
-      
-      // Try to get palette from various locations
-      if (section.block_states && section.block_states.palette) {
-        palette = Array.isArray(section.block_states.palette) ? 
-                 section.block_states.palette : 
-                 (section.block_states.palette.value || []);
-      } else if (section.Palette) {
-        palette = Array.isArray(section.Palette) ? section.Palette : (section.Palette.value || []);
-      } else if (section.palette) {
-        palette = Array.isArray(section.palette) ? section.palette : (section.palette.value || []);
-      }
-      
-      // Try to get block states from various locations
-      if (section.block_states && section.block_states.data) {
-        blockStates = Array.isArray(section.block_states.data) ? 
-                     section.block_states.data : 
-                     (section.block_states.data.value || []);
-      } else if (section.BlockStates) {
-        blockStates = Array.isArray(section.BlockStates) ? section.BlockStates : (section.BlockStates.value || []);
-      }
-      
-      // Handle 1.21+ format palette entries
-      if (palette.length > 0 && palette[0] && typeof palette[0] === 'object') {
-        palette = palette.map(entry => {
-          if (entry.Name) return entry.Name.value || entry.Name;
-          if (entry.name) return entry.name.value || entry.name;
-          return entry;
-        });
-      }
-      
-      // Skip if we don't have both palette and block states
-      if (!palette.length || !blockStates.length) {
-        console.log(`Skipping section at Y=${sectionY}: no palette (${palette.length}) or block states (${blockStates.length})`);
-        continue;
-      }
-      
-      // Calculate bits per block
-      const bitsPerBlock = Math.max(Math.ceil(Math.log2(palette.length)), 4);
-      
-      try {
-        // Extract block states
-        const blockIds = extractBlockStatesFromPackedLongArray(blockStates, bitsPerBlock, palette.length, 4096);
+    sections.forEach(section => {
+        // Handle potential "3 entries" wrapper
+        const actualSection = section['3 entries'] || section;
         
-        // Process blocks in the section
-        for (let y = 0; y < 16; y++) {
-          const worldY = sectionY * 16 + y;
-          if (worldY < -64 || worldY > 320) continue;
-          
-          for (let z = 0; z < 16; z++) {
-            const worldZ = chunkZ * 16 + z;
-            if (regionSelection && (worldZ < regionSelection.minZ || worldZ > regionSelection.maxZ)) continue;
+        // Get Y level
+        const y = actualSection.Y?.value || actualSection.y || 0;
+        
+        // Get block states and palette - handle nested structure
+        const blockStates = actualSection.block_states?.data?.value || 
+                           actualSection.BlockStates?.value ||
+                           actualSection.block_states?.data ||
+                           actualSection['3 entries']?.block_states?.data;
+                       
+        const palette = actualSection.block_states?.palette?.value || 
+                       actualSection.Palette?.value ||
+                       actualSection.block_states?.palette ||
+                       actualSection['3 entries']?.block_states?.palette;
+
+        if (!blockStates || !palette) {
+            return;
+        }
+
+        // Calculate bits per block based on palette size
+        const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
+        
+        // Extract block states from packed long array
+        const states = extractBlockStatesFromPackedLongArray(
+          blockStates,
+          bitsPerBlock,
+          palette.length,
+          4096 // 16x16x16 section size
+        );
+
+        // Process each block position
+        for (let i = 0; i < 4096; i++) {
+          const paletteIndex = states[i];
+          if (paletteIndex >= palette.length) continue;
+
+          const blockData = palette[paletteIndex];
+          if (!blockData) continue;
+
+          // Get block name, handling different formats
+          const blockName = blockData.Name?.value || blockData.Name;
+          if (!blockName || blockName === 'minecraft:air') continue;
+
+          // Calculate coordinates
+          const localY = Math.floor(i / 256);
+          const localZ = Math.floor((i % 256) / 16);
+          const localX = i % 16;
+
+          const worldX = chunk.x * 16 + localX;
+          const worldY = y * 16 + localY;
+          const worldZ = chunk.z * 16 + localZ;
+
+          // Skip if outside region selection
+          if (regionSelection && (
+            worldX < regionSelection.minX || worldX > regionSelection.maxX ||
+            worldY < regionSelection.minY || worldY > regionSelection.maxY ||
+            worldZ < regionSelection.minZ || worldZ > regionSelection.maxZ
+          )) {
+            continue;
+          }
+
+          // Map block ID using blockMapping
+          let hytopiaBlockId;
+          if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+            hytopiaBlockId = blockMapping.blocks[blockName].id;
+          } else {
+            // Try with different formats
+            const baseName = blockName.split('[')[0]; // Remove block states
             
-            for (let x = 0; x < 16; x++) {
-              const worldX = chunkX * 16 + x;
-              if (regionSelection && (worldX < regionSelection.minX || worldX > regionSelection.maxX)) continue;
-              
-              const index = y * 256 + z * 16 + x;
-              if (index >= blockIds.length) continue;
-              
-              const paletteIndex = blockIds[index];
-              if (paletteIndex === undefined || paletteIndex >= palette.length) continue;
-              
-              const block = palette[paletteIndex];
-              if (!block) continue;
-              
-              // Get block name
-              let blockName = block;
-              if (typeof block === 'object') {
-                blockName = block.Name || block.name || '';
-                if (typeof blockName === 'object') {
-                  blockName = blockName.value || '';
-                }
-              }
-              
-              // Skip air blocks
-              if (!blockName || blockName === 'minecraft:air' || blockName === 'air') continue;
-              
-              // Ensure minecraft: prefix
-              if (!blockName.includes(':')) {
-                blockName = `minecraft:${blockName}`;
-              }
-              
-              // Map block to Hytopia ID
-              let mappedId = blockMapping.blocks[blockName]?.id;
-              if (!mappedId) {
-                const simpleName = blockName.replace('minecraft:', '');
-                mappedId = blockMapping.blocks[simpleName]?.id;
-              }
-              
-              if (!mappedId) {
-                mappedId = getFallbackBlockId(blockName);
-                unmappedBlockTracker.trackBlock(blockName, `${worldX},${worldY},${worldZ}`, mappedId);
-              }
-              
-              blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
+            if (blockMapping.blocks && blockMapping.blocks[baseName]) {
+              hytopiaBlockId = blockMapping.blocks[baseName].id;
+            } else {
+              // Use fallback mapping
+              hytopiaBlockId = getFallbackBlockId(blockName);
+              unmappedBlockTracker.trackBlock(blockName, `${worldX},${worldY},${worldZ}`, hytopiaBlockId);
             }
           }
+
+          blocks[`${worldX},${worldY},${worldZ}`] = hytopiaBlockId;
         }
-      } catch (sectionError) {
-        console.error(`Error processing section at Y=${sectionY}:`, sectionError);
-      }
-    }
-    
-    console.log(`Extracted ${Object.keys(blocks).length} blocks from chunk ${chunkX},${chunkZ}`);
-  } catch (error) {
-    console.error(`Error processing chunk ${chunkX},${chunkZ}:`, error);
-  }
-  
-  return blocks;
+    });
+
+    return blocks;
 }
 
 // Helper function to generate a fallback chunk when extraction fails
@@ -908,18 +769,44 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
 
           let chunkData;
           try {
+            // Add detailed inspection of compressed data
+            console.log(`Inspecting chunk ${chunkX},${chunkZ} data:`, {
+              compressedLength: compressedData.length,
+              firstBytes: Array.from(compressedData.slice(0, 16)).map(b => b.toString(16)).join(' '),
+              compressionType,
+              rawBuffer: compressedData.buffer ? true : false,
+              isTypedArray: compressedData instanceof Uint8Array,
+              constructor: compressedData.constructor.name
+            });
+
             // Decompress chunk data with additional error handling
             if (compressionType === 1) { // GZip
               try {
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: 31 }));
+                console.log(`GZip decompression successful for chunk ${chunkX},${chunkZ}:`, {
+                  decompressedLength: chunkData.length,
+                  firstBytesDecompressed: Array.from(chunkData.slice(0, 16)).map(b => b.toString(16)).join(' ')
+                });
               } catch (gzipError) {
+                console.log(`GZip decompression failed for chunk ${chunkX},${chunkZ}, trying alternative:`, {
+                  error: gzipError.message,
+                  stack: gzipError.stack
+                });
                 // Try alternative windowBits if first attempt fails
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: -15 }));
               }
             } else if (compressionType === 2) { // Zlib
               try {
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: 15 }));
+                console.log(`Zlib decompression successful for chunk ${chunkX},${chunkZ}:`, {
+                  decompressedLength: chunkData.length,
+                  firstBytesDecompressed: Array.from(chunkData.slice(0, 16)).map(b => b.toString(16)).join(' ')
+                });
               } catch (zlibError) {
+                console.log(`Zlib decompression failed for chunk ${chunkX},${chunkZ}, trying alternative:`, {
+                  error: zlibError.message,
+                  stack: zlibError.stack
+                });
                 // Try alternative windowBits if first attempt fails
                 chunkData = Buffer.from(pako.inflate(compressedData));
               }
@@ -927,22 +814,42 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
               console.warn(`Unknown compression type ${compressionType} for chunk ${chunkX},${chunkZ}`);
               continue;
             }
+
+            // Inspect decompressed data before NBT parsing
+            console.log(`Pre-NBT parse inspection for chunk ${chunkX},${chunkZ}:`, {
+              decompressedLength: chunkData.length,
+              firstBytes: Array.from(chunkData.slice(0, 32)).map(b => b.toString(16)).join(' '),
+              asBuffer: Buffer.isBuffer(chunkData),
+              constructor: chunkData.constructor.name,
+              hasValidNBTHeader: chunkData.length > 3 && chunkData[0] === 0x0A // NBT compound tag
+            });
           
             // Parse NBT data with enhanced error handling
             let parsedNBT;
             try {
+              // Log the actual data we're passing to nbt.parse
+              console.log(`Attempting NBT parse for chunk ${chunkX},${chunkZ} with data:`, {
+                dataType: typeof chunkData,
+                isBuffer: Buffer.isBuffer(chunkData),
+                length: chunkData.length,
+                options: { ...NBT_OPTIONS, compression: compressionType }
+              });
+
               parsedNBT = await nbt.parse(chunkData, {
                 ...NBT_OPTIONS,
-                // Add additional options for robustness
                 proven: false,
                 compression: compressionType
               });
 
-              // Add better validation of parsed NBT
-              if (!parsedNBT || !parsedNBT.parsed) {
-                console.warn(`NBT parsing returned empty result for chunk ${chunkX},${chunkZ}`);
-                console.log('NBT parsing result:', JSON.stringify(parsedNBT, null, 2));
-                throw new Error('Empty NBT parsing result');
+              // Log successful parse result structure
+              if (parsedNBT && parsedNBT.parsed) {
+                console.log(`Successful NBT parse for chunk ${chunkX},${chunkZ}:`, {
+                  hasType: !!parsedNBT.parsed.type,
+                  type: parsedNBT.parsed.type,
+                  hasValue: !!parsedNBT.parsed.value,
+                  valueKeys: parsedNBT.parsed.value ? Object.keys(parsedNBT.parsed.value) : [],
+                  rawResult: JSON.stringify(parsedNBT.parsed).substring(0, 200)
+                });
               }
             } catch (nbtError) {
               // Enhanced error handling for [object Object] cases
@@ -1216,18 +1123,44 @@ async function parseRegionFile(regionFile) {
 
           let chunkData;
           try {
+            // Add detailed inspection of compressed data
+            console.log(`Inspecting chunk ${chunkX},${chunkZ} data:`, {
+              compressedLength: compressedData.length,
+              firstBytes: Array.from(compressedData.slice(0, 16)).map(b => b.toString(16)).join(' '),
+              compressionType,
+              rawBuffer: compressedData.buffer ? true : false,
+              isTypedArray: compressedData instanceof Uint8Array,
+              constructor: compressedData.constructor.name
+            });
+
             // Decompress chunk data with additional error handling
             if (compressionType === 1) { // GZip
               try {
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: 31 }));
+                console.log(`GZip decompression successful for chunk ${chunkX},${chunkZ}:`, {
+                  decompressedLength: chunkData.length,
+                  firstBytesDecompressed: Array.from(chunkData.slice(0, 16)).map(b => b.toString(16)).join(' ')
+                });
               } catch (gzipError) {
+                console.log(`GZip decompression failed for chunk ${chunkX},${chunkZ}, trying alternative:`, {
+                  error: gzipError.message,
+                  stack: gzipError.stack
+                });
                 // Try alternative windowBits if first attempt fails
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: -15 }));
               }
             } else if (compressionType === 2) { // Zlib
               try {
                 chunkData = Buffer.from(pako.inflate(compressedData, { windowBits: 15 }));
+                console.log(`Zlib decompression successful for chunk ${chunkX},${chunkZ}:`, {
+                  decompressedLength: chunkData.length,
+                  firstBytesDecompressed: Array.from(chunkData.slice(0, 16)).map(b => b.toString(16)).join(' ')
+                });
               } catch (zlibError) {
+                console.log(`Zlib decompression failed for chunk ${chunkX},${chunkZ}, trying alternative:`, {
+                  error: zlibError.message,
+                  stack: zlibError.stack
+                });
                 // Try alternative windowBits if first attempt fails
                 chunkData = Buffer.from(pako.inflate(compressedData));
               }
@@ -1235,22 +1168,42 @@ async function parseRegionFile(regionFile) {
               console.warn(`Unknown compression type ${compressionType} for chunk ${chunkX},${chunkZ}`);
               continue;
             }
+
+            // Inspect decompressed data before NBT parsing
+            console.log(`Pre-NBT parse inspection for chunk ${chunkX},${chunkZ}:`, {
+              decompressedLength: chunkData.length,
+              firstBytes: Array.from(chunkData.slice(0, 32)).map(b => b.toString(16)).join(' '),
+              asBuffer: Buffer.isBuffer(chunkData),
+              constructor: chunkData.constructor.name,
+              hasValidNBTHeader: chunkData.length > 3 && chunkData[0] === 0x0A // NBT compound tag
+            });
           
             // Parse NBT data with enhanced error handling
             let parsedNBT;
             try {
+              // Log the actual data we're passing to nbt.parse
+              console.log(`Attempting NBT parse for chunk ${chunkX},${chunkZ} with data:`, {
+                dataType: typeof chunkData,
+                isBuffer: Buffer.isBuffer(chunkData),
+                length: chunkData.length,
+                options: { ...NBT_OPTIONS, compression: compressionType }
+              });
+
               parsedNBT = await nbt.parse(chunkData, {
                 ...NBT_OPTIONS,
-                // Add additional options for robustness
                 proven: false,
                 compression: compressionType
               });
 
-              // Add better validation of parsed NBT
-              if (!parsedNBT || !parsedNBT.parsed) {
-                console.warn(`NBT parsing returned empty result for chunk ${chunkX},${chunkZ}`);
-                console.log('NBT parsing result:', JSON.stringify(parsedNBT, null, 2));
-                throw new Error('Empty NBT parsing result');
+              // Log successful parse result structure
+              if (parsedNBT && parsedNBT.parsed) {
+                console.log(`Successful NBT parse for chunk ${chunkX},${chunkZ}:`, {
+                  hasType: !!parsedNBT.parsed.type,
+                  type: parsedNBT.parsed.type,
+                  hasValue: !!parsedNBT.parsed.value,
+                  valueKeys: parsedNBT.parsed.value ? Object.keys(parsedNBT.parsed.value) : [],
+                  rawResult: JSON.stringify(parsedNBT.parsed).substring(0, 200)
+                });
               }
             } catch (nbtError) {
               // Enhanced error handling for [object Object] cases
@@ -2333,4 +2286,22 @@ function inspectError(error, prefix = 'Error') {
       }
     }
   }
+}
+
+// Add this function to extract world metadata from level.dat
+async function extractWorldMetadata(levelData) {
+    const metadata = {
+        version: {
+            name: levelData?.Data?.Version?.Name?.value || '1.21',
+            dataVersion: levelData?.Data?.DataVersion || 3953
+        },
+        worldType: levelData?.Data?.WorldGenSettings?.dimensions?.['minecraft:overworld']?.type?.value || 'minecraft:overworld',
+        isFlat: levelData?.Data?.WorldGenSettings?.dimensions?.['minecraft:overworld']?.type?.value === 'minecraft:flat',
+        borders: {
+            size: levelData?.Data?.BorderSize || 59999968,
+            warningBlocks: levelData?.Data?.BorderWarningBlocks || 5
+        }
+    };
+
+    return metadata;
 }
