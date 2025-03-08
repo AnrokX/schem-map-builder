@@ -548,4 +548,38 @@
   .block-selector-grid {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   }
+}
+
+/* Minecraft World specific styles */
+.minecraft-world-info {
+  background-color: #222;
+  border-radius: 5px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.minecraft-world-info h3 {
+  color: #4CAF50;
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 18px;
+}
+
+.minecraft-world-info p {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.warning-text {
+  color: #FFA726;
+  font-weight: bold;
+  font-style: italic;
+  margin-top: 15px !important;
+  padding: 8px;
+  border-left: 3px solid #FFA726;
+  background-color: rgba(255, 167, 38, 0.1);
+}
+
+.region-selection-modal {
+  max-width: 800px;
 } 

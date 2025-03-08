@@ -8,18 +8,38 @@ const RegionSelectionModal = ({
   onSelectRegion,
   dimensions,
   centerOffset,
-  actualBlockCount
+  actualBlockCount,
+  worldInfo // New prop for Minecraft world info
 }) => {
-  // Define the boundary limits based on dimensions and centerOffset
-  const minXBoundary = dimensions ? -Math.floor(dimensions.width / 2) + (centerOffset?.x || 0) : 0;
-  const minYBoundary = dimensions ? 0 + (centerOffset?.y || 0) : 0;
-  const minZBoundary = dimensions ? -Math.floor(dimensions.length / 2) + (centerOffset?.z || 0) : 0;
+  // Check if we're handling a Minecraft world or a schematic
+  const isMinecraftWorld = !!worldInfo;
   
-  const maxXBoundary = dimensions ? Math.ceil(dimensions.width / 2) - 1 + (centerOffset?.x || 0) : 0;
-  const maxYBoundary = dimensions ? (dimensions.height || 0) - 1 + (centerOffset?.y || 0) : 0;
-  const maxZBoundary = dimensions ? Math.ceil(dimensions.length / 2) - 1 + (centerOffset?.z || 0) : 0;
+  // Define the boundary limits based on dimensions, centerOffset, or worldInfo
+  const minXBoundary = isMinecraftWorld ? 
+    -1024 : // For Minecraft worlds, use a larger default range
+    (dimensions ? -Math.floor(dimensions.width / 2) + (centerOffset?.x || 0) : 0);
+    
+  const minYBoundary = isMinecraftWorld ? 
+    0 : // Minecraft worlds start at Y=0
+    (dimensions ? 0 + (centerOffset?.y || 0) : 0);
+    
+  const minZBoundary = isMinecraftWorld ? 
+    -1024 : // For Minecraft worlds, use a larger default range
+    (dimensions ? -Math.floor(dimensions.length / 2) + (centerOffset?.z || 0) : 0);
+  
+  const maxXBoundary = isMinecraftWorld ? 
+    1024 : // For Minecraft worlds, use a larger default range
+    (dimensions ? Math.ceil(dimensions.width / 2) - 1 + (centerOffset?.x || 0) : 0);
+    
+  const maxYBoundary = isMinecraftWorld ? 
+    256 : // Minecraft worlds typically have a height of 256
+    (dimensions ? (dimensions.height || 0) - 1 + (centerOffset?.y || 0) : 0);
+    
+  const maxZBoundary = isMinecraftWorld ? 
+    1024 : // For Minecraft worlds, use a larger default range
+    (dimensions ? Math.ceil(dimensions.length / 2) - 1 + (centerOffset?.z || 0) : 0);
 
-  // Initialize with the full dimensions of the schematic
+  // Initialize with default values
   const [minX, setMinX] = useState(minXBoundary);
   const [minY, setMinY] = useState(minYBoundary);
   const [minZ, setMinZ] = useState(minZBoundary);
@@ -27,6 +47,25 @@ const RegionSelectionModal = ({
   const [maxX, setMaxX] = useState(maxXBoundary);
   const [maxY, setMaxY] = useState(maxYBoundary);
   const [maxZ, setMaxZ] = useState(maxZBoundary);
+
+  // If dealing with a Minecraft world, set more reasonable initial values
+  useEffect(() => {
+    if (isMinecraftWorld && worldInfo) {
+      // Use spawn point as center and create a reasonable area around it
+      const spawnX = worldInfo.spawnX || 0;
+      const spawnY = worldInfo.spawnY || 64;
+      const spawnZ = worldInfo.spawnZ || 0;
+      
+      // Default to a 128x128x128 region around spawn point
+      setMinX(spawnX - 64);
+      setMinY(Math.max(0, spawnY - 32));
+      setMaxY(Math.min(255, spawnY + 96));
+      setMinZ(spawnZ - 64);
+      
+      setMaxX(spawnX + 64);
+      setMaxZ(spawnZ + 64);
+    }
+  }, [isMinecraftWorld, worldInfo]);
   
   const [useFullMap, setUseFullMap] = useState(true);
   const [validationError, setValidationError] = useState('');
@@ -38,7 +77,7 @@ const RegionSelectionModal = ({
 
   // Update bounds when dimensions change
   useEffect(() => {
-    if (dimensions) {
+    if (dimensions && !isMinecraftWorld) {
       setMinX(minXBoundary);
       setMinY(minYBoundary);
       setMinZ(minZBoundary);
@@ -47,7 +86,7 @@ const RegionSelectionModal = ({
       setMaxY(maxYBoundary);
       setMaxZ(maxZBoundary);
     }
-  }, [dimensions, centerOffset, minXBoundary, minYBoundary, minZBoundary, maxXBoundary, maxYBoundary, maxZBoundary]);
+  }, [dimensions, centerOffset, minXBoundary, minYBoundary, minZBoundary, maxXBoundary, maxYBoundary, maxZBoundary, isMinecraftWorld]);
   
   // Handle input changes with validation
   const handleMinXChange = (value) => {
@@ -113,32 +152,30 @@ const RegionSelectionModal = ({
     }
   };
   
-  // Calculate total blocks in the selected region (excluding air blocks)
+  // Calculate the estimated block count
   const calculateBlockCount = () => {
-    if (useFullMap || !dimensions) return actualBlockCount || "all";
-    
-    // If we don't have the actual block count, return unknown
-    if (!actualBlockCount) return "unknown";
-    
-    // If the full dimension is selected, return the total count
-    if (
-      minX === minXBoundary &&
-      minY === minYBoundary &&
-      minZ === minZBoundary &&
-      maxX === maxXBoundary &&
-      maxY === maxYBoundary &&
-      maxZ === maxZBoundary
-    ) {
-      return actualBlockCount;
+    if (useFullMap) {
+      // For full map, use actual block count if available 
+      return isMinecraftWorld ? 
+        worldInfo?.estimatedBlockCount || "Unknown" :
+        actualBlockCount || "Unknown";
+    } else {
+      // For selection, calculate based on coordinates
+      const width = Math.abs(maxX - minX) + 1;
+      const height = Math.abs(maxY - minY) + 1;
+      const length = Math.abs(maxZ - minZ) + 1;
+      const volume = width * height * length;
+      
+      if (isMinecraftWorld) {
+        // For Minecraft worlds, we estimate that only about 30% of blocks are non-air
+        return Math.round(volume * 0.3);
+      } else {
+        // For schematics, use the ratio of actual blocks to volume
+        const fullVolume = dimensions ? dimensions.width * dimensions.height * dimensions.length : 1;
+        const ratio = actualBlockCount ? actualBlockCount / fullVolume : 0.7;
+        return Math.round(volume * ratio);
+      }
     }
-    
-    // For partial selections, estimate the block count based on volume ratio
-    const totalVolume = dimensions.width * dimensions.height * dimensions.length;
-    const selectedVolume = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
-    const ratio = selectedVolume / totalVolume;
-    
-    // Estimation may not be perfectly accurate due to uneven block distribution
-    return Math.round(actualBlockCount * ratio);
   };
   
   const handleConfirm = () => {
@@ -165,18 +202,28 @@ const RegionSelectionModal = ({
   
   return (
     <div className="block-import-modal-overlay">
-      <div className="block-import-modal">
+      <div className="block-import-modal region-selection-modal">
         <div className="block-import-modal-header">
-          <h2>Select Region to Import</h2>
+          <h2>{isMinecraftWorld ? "Minecraft World Region Selection" : "Schematic Region Selection"}</h2>
           <button className="close-button" onClick={onClose}>
             <FaTimes />
           </button>
         </div>
         
         <div className="block-import-modal-info">
-          <p>Select a specific region of the schematic to import, or import the entire schematic.</p>
-          <p>Full schematic dimensions: {dimensions?.width || 0} x {dimensions?.height || 0} x {dimensions?.length || 0} blocks</p>
-          <p>Total blocks (excluding air): <strong>{actualBlockCount || "Unknown"}</strong></p>
+          {isMinecraftWorld ? (
+            <div className="minecraft-world-info">
+              <h3>World Information</h3>
+              <p><strong>Name:</strong> {worldInfo?.name || "Unknown"}</p>
+              <p><strong>Version:</strong> {worldInfo?.gameVersion || "Unknown"}</p>
+              <p><strong>Region Files:</strong> {worldInfo?.regionCount || "Unknown"}</p>
+              <p><strong>Spawn Point:</strong> X: {worldInfo?.spawnX || 0}, Y: {worldInfo?.spawnY || 64}, Z: {worldInfo?.spawnZ || 0}</p>
+              <p><strong>Estimated Size:</strong> {worldInfo?.estimatedSize || "Unknown"}</p>
+              <p className="warning-text">Warning: Importing a full Minecraft world can be resource-intensive. Consider selecting a smaller region around spawn.</p>
+            </div>
+          ) : (
+            <p>The schematic is {dimensions?.width || "?"} x {dimensions?.height || "?"} x {dimensions?.length || "?"} blocks with {actualBlockCount || "unknown"} actual blocks. You can import the entire schematic or select a region.</p>
+          )}
         </div>
         
         <div className="region-selection-container">

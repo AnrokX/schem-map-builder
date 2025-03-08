@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { processCustomBlock, getBlockTypes } from '../TerrainBuilder';
 import { finalizeSchematicImport } from '../SchematicConverter';
+import { finalizeMinecraftWorldImport } from '../MinecraftWorldImporter';
 import { FaUpload, FaTimes, FaTrash, FaExchangeAlt } from 'react-icons/fa';
 import Tooltip from './Tooltip';
 import './BlockImportModal.css';
@@ -21,7 +22,8 @@ const BlockImportModal = ({
   unmappedBlocks,
   temporaryBlockMap,
   terrainBuilderRef,
-  onImportComplete 
+  onImportComplete,
+  importSource
 }) => {
   const [blockDecisions, setBlockDecisions] = useState({});
   const [loading, setLoading] = useState(false);
@@ -226,13 +228,24 @@ const BlockImportModal = ({
       const totalBlocks = Object.keys(blockDecisions).length; // eslint-disable-line no-unused-vars
       let processed = 0; // eslint-disable-line no-unused-vars
       
-      // Finalize the import with all decisions
-      const result = await finalizeSchematicImport(
-        temporaryBlockMap,
-        unmappedBlocks,
-        blockDecisions,
-        terrainBuilderRef
-      );
+      // Choose the right finalization function based on import source
+      let result;
+      if (importSource === 'minecraft') {
+        result = await finalizeMinecraftWorldImport(
+          temporaryBlockMap,
+          unmappedBlocks,
+          blockDecisions,
+          terrainBuilderRef
+        );
+      } else {
+        // Default to schematic import
+        result = await finalizeSchematicImport(
+          temporaryBlockMap,
+          unmappedBlocks,
+          blockDecisions,
+          terrainBuilderRef
+        );
+      }
       
       // Call the completion callback
       if (onImportComplete) {
@@ -243,7 +256,7 @@ const BlockImportModal = ({
       onClose();
     } catch (error) {
       console.error("Error finalizing import:", error);
-      alert("Error importing schematic: " + error.message);
+      alert(`Error importing ${importSource === 'minecraft' ? 'Minecraft world' : 'schematic'}: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -256,14 +269,14 @@ const BlockImportModal = ({
     <div className="block-import-modal-overlay">
       <div className="block-import-modal">
         <div className="block-import-modal-header">
-          <h2>Block Texture Selection</h2>
+          <h2>{importSource === 'minecraft' ? 'Minecraft Block Mapping' : 'Block Texture Selection'}</h2>
           <button className="close-button" onClick={onClose} disabled={loading}>
             <FaTimes />
           </button>
         </div>
         
         <div className="block-import-modal-info">
-          <p>The schematic contains {Object.keys(unmappedBlocks || {}).length} block types without exact matches in HYTOPIA. 
+          <p>The {importSource === 'minecraft' ? 'Minecraft world' : 'schematic'} contains {Object.keys(unmappedBlocks || {}).length} block types without exact matches in HYTOPIA. 
             For each block, you can:</p>
           <ul>
             <li><strong>Select HYTOPIA Block:</strong> Choose from existing HYTOPIA blocks</li>
