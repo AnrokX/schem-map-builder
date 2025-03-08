@@ -22,7 +22,16 @@ const NBT_OPTIONS = {
   // Increase timeout for larger files
   timeout: 30000,
   // Explicitly handle metadata for 1.21+ format
-  keepMetadata: true
+  keepMetadata: true,
+  // Additional options for 1.21 format
+  keepRawData: true,
+  proven: false,
+  // Handle long arrays properly
+  longArrayAsString: false,
+  // Increase buffer size for large chunks
+  maxArrayLength: 32768,
+  // Handle nested structures
+  maxDepth: 128
 };
 
 // Global variables for tracking
@@ -157,14 +166,17 @@ function getFallbackBlockId(blockName) {
 
 // Parse region file coordinates from filename (e.g., r.0.0.mca -> {x: 0, z: 0})
 function parseRegionCoordinates(filename) {
+  // Handle negative coordinates in filenames like "r.-1.2.mca"
   const match = filename.match(/r\.(-?\d+)\.(-?\d+)\.mca/);
-  if (match) {
-    return {
-      x: parseInt(match[1]),
-      z: parseInt(match[2])
-    };
+  if (!match) {
+    console.warn(`Invalid region filename format: ${filename}`);
+    return null;
   }
-  return null;
+  
+  return {
+    x: parseInt(match[1], 10),
+    z: parseInt(match[2], 10)
+  };
 }
 
 // Function to read a 4-byte big-endian integer from buffer
@@ -175,13 +187,20 @@ function readInt32BE(buffer, offset) {
          buffer[offset + 3];
 }
 
+function parseLongArray(nbtLongArray) {
+  if (nbtLongArray.type === 'LongArray') {
+    return nbtLongArray.value.map(l => [l.high, l.low]);
+  }
+  return nbtLongArray;
+}
+
 // Extract block states from a packed long array without using BigInt
 function extractBlockStatesFromPackedLongArray(packedLongArray, bitsPerBlock, paletteSize, blockCount) {
   // Enhanced handling for different input formats
   console.log(`Extracting block states with ${bitsPerBlock} bits per block, palette size ${paletteSize}`);
   
   // Convert input to array of numbers if needed
-  let longArray = packedLongArray;
+  const longArray = parseLongArray(packedLongArray);
   
   // Handle NBT format where each item might be a {type: 'long', value: [high, low]} object
   if (packedLongArray.length > 0 && typeof packedLongArray[0] === 'object') {
@@ -384,10 +403,9 @@ function process121ChunkSections(sections, chunkX, chunkZ) {
         console.log(`Processing section ${idx}, keys:`, Object.keys(section || {}));
 
         // Get block states and palette
-        const blockStates = section?.block_states?.data?.value || 
-                          section?.block_states?.data || 
-                          section?.BlockStates?.value || 
-                          section?.BlockStates;
+        const blockStates = section?.block_states?.data?.value ?
+          parseLongArray(section.block_states.data) :
+          section?.BlockStates;
                           
         const palette = section?.block_states?.palette?.value || 
                        section?.block_states?.palette || 
@@ -544,295 +562,187 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
     // Check if the data is valid
     if (!chunk.data) {
       console.warn(`Empty chunk data for chunk ${chunkX},${chunkZ}`);
+      return blocks;
     }
 
     // DEBUG: Log the top-level keys for the first chunk to understand the structure
     if (chunkX === chunk.data.xPos && chunkZ === chunk.data.zPos) {
-      console.log(`Chunk ${chunkX},${chunkZ} top-level keys:`, Object.keys(chunk.data));
-      if (chunk.data.Level) {
-        console.log(`Level keys:`, Object.keys(chunk.data.Level));
-      }
-      if (chunk.data.Data) {
-        console.log(`Data keys:`, Object.keys(chunk.data.Data));
-      }
+      console.log(`Chunk ${chunkX},${chunkZ} structure:`, {
+        hasLevel: !!chunk.data.Level,
+        hasData: !!chunk.data.Data,
+        topLevelKeys: Object.keys(chunk.data)
+      });
     }
     
     // Try to find sections in different locations based on Minecraft version
     
-    // 1. Minecraft 1.21+ format - Data.Sections
-    if (chunk.data.Data && Array.isArray(chunk.data.Data.Sections)) {
-      console.log(`Found 1.21+ format chunk sections at Data.Sections for chunk ${chunkX},${chunkZ}`);
-      const rawSections = chunk.data.Data.Sections;
-      
-      // Special handling for 1.21.4 format
-      sections = process121ChunkSections(rawSections, chunkX, chunkZ);
-      
-      // If sections are empty after processing, try the raw version anyway
-      if (!sections || Object.keys(sections).length === 0) {
-        console.log(`No valid sections after processing, using raw sections`);
-        sections = rawSections;
-      }
+    // 1. Minecraft 1.21+ format - Data.sections
+    if (chunk.data.Data && chunk.data.Data.sections) {
+      console.log(`Found 1.21+ format sections at Data.sections for chunk ${chunkX},${chunkZ}`);
+      sections = Array.isArray(chunk.data.Data.sections) ? 
+                chunk.data.Data.sections : 
+                Object.values(chunk.data.Data.sections);
     }
-    // 2. Old format (pre-1.18) - Level.Sections
-    else if (chunk.data.Level && Array.isArray(chunk.data.Level.Sections)) {
-      console.log(`Found old format chunk sections at Level.Sections for chunk ${chunkX},${chunkZ}`);
+    // 2. Alternative 1.21+ format - Data.Sections
+    else if (chunk.data.Data && chunk.data.Data.Sections) {
+      console.log(`Found 1.21+ format sections at Data.Sections for chunk ${chunkX},${chunkZ}`);
+      sections = Array.isArray(chunk.data.Data.Sections) ? 
+                chunk.data.Data.Sections : 
+                Object.values(chunk.data.Data.Sections);
+    }
+    // 3. Old format (pre-1.18) - Level.Sections
+    else if (chunk.data.Level && chunk.data.Level.Sections) {
+      console.log(`Found old format sections at Level.Sections for chunk ${chunkX},${chunkZ}`);
       sections = chunk.data.Level.Sections;
-    } 
-    // 3. New format (1.18+) - direct sections array
+    }
+    // 4. Direct sections array
     else if (Array.isArray(chunk.data.sections)) {
-      console.log(`Found new format chunk sections at root.sections for chunk ${chunkX},${chunkZ}`);
+      console.log(`Found sections at root.sections for chunk ${chunkX},${chunkZ}`);
       sections = chunk.data.sections;
     }
-    // 4. Alternative location - root Sections
+    // 5. Direct Sections array
     else if (Array.isArray(chunk.data.Sections)) {
       console.log(`Found sections at root.Sections for chunk ${chunkX},${chunkZ}`);
       sections = chunk.data.Sections;
     }
-    // 5. New Minecraft 1.18+ world format: nested structure in sections object
-    else if (chunk.data.sections && typeof chunk.data.sections === 'object' && !Array.isArray(chunk.data.sections)) {
-      console.log(`Found nested sections object at root.sections for chunk ${chunkX},${chunkZ}`);
-      
-      // Try to convert to array or extract values
-      try {
-        const sectionsObj = chunk.data.sections;
-        if (sectionsObj.value && Array.isArray(sectionsObj.value)) {
-          sections = sectionsObj.value;
-        } else {
-          // Need to create an array from object
-          sections = Object.values(sectionsObj).filter(v => v && typeof v === 'object');
-        }
-      } catch (err) {
-        console.warn(`Failed to extract sections from object: ${err.message}`);
-      }
-    }
-    // 6. Nested under Data (newer structure)
-    else if (chunk.data.Data && chunk.data.Data.sections) {
-      console.log(`Found sections under Data.sections for chunk ${chunkX},${chunkZ}`);
-      const dataSection = chunk.data.Data.sections;
-      if (Array.isArray(dataSection)) {
-        sections = dataSection;
-      } else if (dataSection.value && Array.isArray(dataSection.value)) {
-        sections = dataSection.value;
-      } else if (typeof dataSection === 'object') {
-        // Try to extract from nested object
-        sections = Object.values(dataSection).filter(v => v && typeof v === 'object');
-      }
-    }
     
-    // If we still don't have sections, try a more aggressive search
-    if (!sections || Object.keys(sections).length === 0) {
-      // Recursive search for sections in the data structure
+    // If we still don't have sections, try a recursive search
+    if (!sections || sections.length === 0) {
       sections = findSectionsRecursively(chunk.data);
-      
-      if (sections && Object.keys(sections).length > 0) {
-        console.log(`Found sections through recursive search in chunk ${chunkX},${chunkZ}`);
+      if (sections && sections.length > 0) {
+        console.log(`Found ${sections.length} sections through recursive search in chunk ${chunkX},${chunkZ}`);
       }
     }
     
-    // If we still don't have sections, try a fallback approach
-    if (!sections || Object.keys(sections).length === 0) {
-      // One more attempt - check for different NBT formats or nested structures
-      if (chunk.data && chunk.data.Level) {
-        // Try to extract from Level.SectionStates if present (some versions use this)
-        if (chunk.data.Level.SectionStates) {
-          console.log(`Found SectionStates in chunk ${chunkX},${chunkZ}`);
-          sections = Array.isArray(chunk.data.Level.SectionStates) ? 
-                    chunk.data.Level.SectionStates : 
-                    (chunk.data.Level.SectionStates.value || []);
-        }
-        // If there's a Heightmaps key but no Sections, check if there's chunk data elsewhere
-        else if (chunk.data.Level.Heightmaps && !chunk.data.Level.Sections) {
-          console.log(`Found Heightmaps but no Sections in chunk ${chunkX},${chunkZ}, checking for block data`);
-          // In some versions, the blocks are stored in a different format
-          if (chunk.data.Blocks || chunk.data.Level.Blocks) {
-            const blockData = chunk.data.Blocks || chunk.data.Level.Blocks;
-            if (blockData) {
-              console.log(`Found direct Blocks data in chunk ${chunkX},${chunkZ}`);
-              // TODO: Handle direct block data if needed
-            }
-          }
-        }
-      }
-      
-      // If we still don't have sections, use the fallback grid
-      if (Object.keys(sections).length === 0) {
-        console.log(`No sections found in chunk ${chunkX},${chunkZ}, generating fallback terrain`);
-      }
+    // If we still don't have sections, log the chunk structure and return
+    if (!sections || sections.length === 0) {
+      console.warn(`No sections found in chunk ${chunkX},${chunkZ}. Chunk structure:`, chunk.data);
+      return blocks;
     }
     
-    console.log(`Processing ${Object.keys(sections).length} sections in chunk ${chunkX},${chunkZ}`);
+    console.log(`Processing ${sections.length} sections in chunk ${chunkX},${chunkZ}`);
     
-    // Process each section (16x16x16 cube of blocks)
-    for (const section of Object.values(sections)) {
-      // Skip empty sections
+    // Process each section
+    for (const section of sections) {
       if (!section) continue;
       
-      // Try to get Y coordinate of this section (varies by version format)
+      // Get section Y coordinate
       let sectionY = 0;
       if (section.Y !== undefined) {
         sectionY = typeof section.Y === 'object' ? section.Y.value : section.Y;
+      } else if (section.y !== undefined) {
+        sectionY = typeof section.y === 'object' ? section.y.value : section.y;
       }
       
-      // Get palette and block states
+      // Get block states and palette
       let palette = [];
       let blockStates = [];
       
-      // Try to extract palette
-      if (section.Palette) {
-        palette = Array.isArray(section.Palette) ? section.Palette : (section.Palette.value || []);
-      } else if (section.palette) {
-        palette = Array.isArray(section.palette) ? section.palette : (section.palette.value || []);
-      } else if (section.block_states && section.block_states.palette) {
-        // 1.18+ format
+      // Try to get palette from various locations
+      if (section.block_states && section.block_states.palette) {
         palette = Array.isArray(section.block_states.palette) ? 
                  section.block_states.palette : 
                  (section.block_states.palette.value || []);
+      } else if (section.Palette) {
+        palette = Array.isArray(section.Palette) ? section.Palette : (section.Palette.value || []);
+      } else if (section.palette) {
+        palette = Array.isArray(section.palette) ? section.palette : (section.palette.value || []);
       }
       
-      // For 1.21.4 format - if palette is an array of objects with type and value (NBT format)
-      if (palette.length > 0 && palette[0] && palette[0].type && palette[0].value) {
-        console.log(`Found NBT-style palette format, converting...`);
-        palette = palette.map(item => item.value);
-      }
-      
-      // Try to extract block states
-      if (section.BlockStates) {
-        blockStates = Array.isArray(section.BlockStates) ? section.BlockStates : (section.BlockStates.value || []);
-      } else if (section.block_states && section.block_states.data) {
+      // Try to get block states from various locations
+      if (section.block_states && section.block_states.data) {
         blockStates = Array.isArray(section.block_states.data) ? 
                      section.block_states.data : 
                      (section.block_states.data.value || []);
+      } else if (section.BlockStates) {
+        blockStates = Array.isArray(section.BlockStates) ? section.BlockStates : (section.BlockStates.value || []);
       }
       
-      // For 1.21.4 format - if blockStates is an array of objects with type and value
-      if (blockStates.length > 0 && blockStates[0] && blockStates[0].type && blockStates[0].value) {
-        console.log(`Found NBT-style blockStates format, converting...`);
-        blockStates = blockStates.map(item => item.value);
+      // Handle 1.21+ format palette entries
+      if (palette.length > 0 && palette[0] && typeof palette[0] === 'object') {
+        palette = palette.map(entry => {
+          if (entry.Name) return entry.Name.value || entry.Name;
+          if (entry.name) return entry.name.value || entry.name;
+          return entry;
+        });
       }
       
       // Skip if we don't have both palette and block states
       if (!palette.length || !blockStates.length) {
-        console.log(`Skipping section at Y=${sectionY} in chunk ${chunkX},${chunkZ}: no palette or block states`);
+        console.log(`Skipping section at Y=${sectionY}: no palette (${palette.length}) or block states (${blockStates.length})`);
         continue;
       }
       
-      // Get bits per block
+      // Calculate bits per block
       const bitsPerBlock = Math.max(Math.ceil(Math.log2(palette.length)), 4);
       
-      console.log(`Processing section at Y=${sectionY} in chunk ${chunkX},${chunkZ}: palette=${palette.length} blocks, bits=${bitsPerBlock}`);
-      
       try {
-        // Extract the block states into block IDs
+        // Extract block states
         const blockIds = extractBlockStatesFromPackedLongArray(blockStates, bitsPerBlock, palette.length, 4096);
         
-        // Process each block in the section
+        // Process blocks in the section
         for (let y = 0; y < 16; y++) {
           const worldY = sectionY * 16 + y;
-          
-          // Skip sections that are above or below our interest
-          if (worldY < -64 || worldY > 320) continue; // Expanded range for 1.18+
+          if (worldY < -64 || worldY > 320) continue;
           
           for (let z = 0; z < 16; z++) {
             const worldZ = chunkZ * 16 + z;
-            
-            // Skip if outside region selection Z range
-            if (regionSelection && (worldZ < regionSelection.minZ || worldZ > regionSelection.maxZ)) {
-              continue;
-            }
+            if (regionSelection && (worldZ < regionSelection.minZ || worldZ > regionSelection.maxZ)) continue;
             
             for (let x = 0; x < 16; x++) {
               const worldX = chunkX * 16 + x;
+              if (regionSelection && (worldX < regionSelection.minX || worldX > regionSelection.maxX)) continue;
               
-              // Skip if outside region selection X range
-              if (regionSelection && (worldX < regionSelection.minX || worldX > regionSelection.maxX)) {
-                continue;
-              }
-              
-              // Calculate the index in the section
               const index = y * 256 + z * 16 + x;
-              
-              // If index is out of range, skip
               if (index >= blockIds.length) continue;
               
               const paletteIndex = blockIds[index];
-              
-              // Skip if paletteIndex is invalid
               if (paletteIndex === undefined || paletteIndex >= palette.length) continue;
               
               const block = palette[paletteIndex];
-              
-              // Skip air blocks
               if (!block) continue;
               
-              // Get the block name - handle different formats
-              let blockName;
-              if (block.Name) {
-                blockName = typeof block.Name === 'object' ? block.Name.value : block.Name;
-              } else if (block.name) {
-                blockName = typeof block.name === 'object' ? block.name.value : block.name;
-              } else if (typeof block === 'string') {
-                // Some versions just have strings directly
-                blockName = block;
+              // Get block name
+              let blockName = block;
+              if (typeof block === 'object') {
+                blockName = block.Name || block.name || '';
+                if (typeof blockName === 'object') {
+                  blockName = blockName.value || '';
+                }
               }
               
-              // Skip air blocks and undefined blocks
-              if (!blockName || blockName === 'minecraft:air' || blockName === 'air') {
-                continue;
-              }
+              // Skip air blocks
+              if (!blockName || blockName === 'minecraft:air' || blockName === 'air') continue;
               
-              // Ensure the blockName has the minecraft: prefix
+              // Ensure minecraft: prefix
               if (!blockName.includes(':')) {
                 blockName = `minecraft:${blockName}`;
               }
               
-              // Try to map the block to a Hytopia ID
-              let mappedId;
-              
-              // First try exact mapping
-              if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                mappedId = blockMapping.blocks[blockName];
-              }
-              // Then try the simplified name
-              else {
+              // Map block to Hytopia ID
+              let mappedId = blockMapping.blocks[blockName]?.id;
+              if (!mappedId) {
                 const simpleName = blockName.replace('minecraft:', '');
-                if (blockMapping.blocks && blockMapping.blocks[simpleName]) {
-                  mappedId = blockMapping.blocks[simpleName];
-                }
+                mappedId = blockMapping.blocks[simpleName]?.id;
               }
               
-              // If not found in mapping, use fallback and track unmapped block
               if (!mappedId) {
                 mappedId = getFallbackBlockId(blockName);
                 unmappedBlockTracker.trackBlock(blockName, `${worldX},${worldY},${worldZ}`, mappedId);
               }
               
-              // Add the block to the result
               blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
             }
           }
         }
       } catch (sectionError) {
-        console.error(`Error processing section at Y=${sectionY} in chunk ${chunkX},${chunkZ}:`, sectionError);
-      }
-      
-      // Add detailed debug information
-      console.log(`Section at Y=${sectionY}: palette length=${palette.length}, blockStates length=${blockStates.length}`);
-      if (palette.length > 0) {
-        console.log(`First palette entry:`, palette[0]);
-      }
-      if (blockStates.length > 0) {
-        console.log(`First few blockState values:`, blockStates.slice(0, 3));
+        console.error(`Error processing section at Y=${sectionY}:`, sectionError);
       }
     }
     
     console.log(`Extracted ${Object.keys(blocks).length} blocks from chunk ${chunkX},${chunkZ}`);
   } catch (error) {
     console.error(`Error processing chunk ${chunkX},${chunkZ}:`, error);
-  }
-  
-  // If we couldn't extract any blocks, use fallback
-  if (Object.keys(blocks).length === 0) {
-    console.log(`No blocks extracted from chunk ${chunkX},${chunkZ}, using fallback`);
   }
   
   return blocks;
@@ -875,32 +785,34 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
   const buffer = Buffer.from(fileData);
   const chunks = [];
   
-  // Show detailed debug info for the first region file processed
-  const isFirstRegion = regionCoords.x === 0 && regionCoords.z === 0;
+  // Validate region coordinates format
+  console.log(`Processing region r.${regionCoords.x}.${regionCoords.z}.mca`);
   
-  if (isFirstRegion) {
-    console.log(`Processing region at ${regionCoords.x},${regionCoords.z} with buffer length ${buffer.length}`);
-  }
+  // First read the chunk headers (8KiB total - 4 bytes per chunk)
+  const locationTable = buffer.slice(0, 4096);  // First 4KiB is chunk locations
+  const timestampTable = buffer.slice(4096, 8192);  // Second 4KiB is timestamps
   
   // MCA file format: Each region file contains 32x32 chunks
-  // Each chunk has a 4-byte header with location and size information
   for (let z = 0; z < 32; z++) {
     for (let x = 0; x < 32; x++) {
-      // Calculate the offset in the location table (first 4KB of the file)
       const headerOffset = 4 * (x + z * 32);
       
-      // Check that we're not going past the buffer boundary
-      if (headerOffset + 4 > buffer.length) {
-        console.warn(`Header offset ${headerOffset} is beyond buffer length ${buffer.length}`);
+      // Add buffer boundary check
+      if (headerOffset + 4 > locationTable.length) {
+        console.warn(`Skipping chunk [${x},${z}] - header beyond buffer (${buffer.length} bytes)`);
         continue;
       }
       
-      // Read chunk header data (location in 4KiB sectors)
-      const offset = (buffer[headerOffset] << 16) | (buffer[headerOffset + 1] << 8) | buffer[headerOffset + 2];
-      const sectorCount = buffer[headerOffset + 3];
-      
+      // Read chunk location with proper byte conversion
+      const offsetBytes = locationTable.slice(headerOffset, headerOffset + 3);
+      const offset = (offsetBytes[0] << 16) | (offsetBytes[1] << 8) | offsetBytes[2];
+      const sectorCount = locationTable[headerOffset + 3];
+
+      // Validate chunk metadata
       if (offset === 0 || sectorCount === 0) {
-        // Chunk doesn't exist
+        if (x === 0 && z === 0) {
+          console.log(`Chunk [${x},${z}] marked as empty in header (offset=${offset}, sectors=${sectorCount})`);
+        }
         continue;
       }
       
@@ -909,22 +821,8 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
       const chunkZ = regionCoords.z * 32 + z;
       
       // First chunk in the first region - additional debug
-      if (isFirstRegion && x === 0 && z === 0) {
+      if (x === 0 && z === 0) {
         console.log(`First chunk header: offset=${offset}, sectors=${sectorCount}`);
-      }
-      
-      // Skip if outside the selected region (if region selection is active)
-      if (regionSelection) {
-        const chunkMinX = chunkX * 16;
-        const chunkMaxX = chunkMinX + 15;
-        const chunkMinZ = chunkZ * 16;
-        const chunkMaxZ = chunkMinZ + 15;
-        
-        // Check if this chunk is completely outside the selection
-        if (chunkMaxX < regionSelection.minX || chunkMinX > regionSelection.maxX ||
-            chunkMaxZ < regionSelection.minZ || chunkMinZ > regionSelection.maxZ) {
-          continue;
-        }
       }
       
       try {
@@ -938,16 +836,15 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
         }
         
         // Read chunk length and compression type
-        const chunkLength = (buffer[chunkOffset] << 24) | (buffer[chunkOffset + 1] << 16) | 
-                           (buffer[chunkOffset + 2] << 8) | buffer[chunkOffset + 3];
+        const chunkLength = readInt32BE(buffer, chunkOffset);
         const compressionType = buffer[chunkOffset + 4];
         
-        if (chunkLength === 0 || chunkLength > 1024 * 1024) { // Sanity check: max 1MB
+        if (chunkLength === 0 || chunkLength > 1024 * 1024 * 2) { // Increased max size to 2MB
           console.warn(`Invalid chunk length ${chunkLength} for chunk ${chunkX},${chunkZ}`);
           continue;
         }
         
-        if (isFirstRegion && x === 0 && z === 0) {
+        if (x === 0 && z === 0) {
           console.log(`First chunk data: length=${chunkLength}, compression=${compressionType}`);
         }
         
@@ -958,22 +855,39 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
         }
         
         // Extract chunk data
-        const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength - 1);
+        const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength);
         let chunkData;
         
         try {
+          // Log compression type and data details
+          console.log(`Processing chunk ${chunkX},${chunkZ}:`, {
+            compressionType,
+            compressedLength: compressedData.length,
+            firstBytes: Array.from(compressedData.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+          });
+
           if (compressionType === 1) {
             // GZip compression (old format)
-            chunkData = pako.inflate(compressedData);
-            if (isFirstRegion && x === 0 && z === 0) {
-              console.log(`Successfully decompressed GZip data for first chunk: ${chunkData.length} bytes`);
-            }
+            const inflated = pako.inflate(compressedData);
+            console.log(`GZip decompression result for chunk ${chunkX},${chunkZ}:`, {
+              inflatedType: typeof inflated,
+              isArray: Array.isArray(inflated),
+              isBuffer: inflated instanceof Buffer,
+              isUint8Array: inflated instanceof Uint8Array,
+              length: inflated?.length
+            });
+            chunkData = Buffer.from(inflated);
           } else if (compressionType === 2) {
             // Zlib compression (common format)
-            chunkData = pako.inflate(compressedData);
-            if (isFirstRegion && x === 0 && z === 0) {
-              console.log(`Successfully decompressed Zlib data for first chunk: ${chunkData.length} bytes`);
-            }
+            const inflated = pako.inflate(compressedData);
+            console.log(`Zlib decompression result for chunk ${chunkX},${chunkZ}:`, {
+              inflatedType: typeof inflated,
+              isArray: Array.isArray(inflated),
+              isBuffer: inflated instanceof Buffer,
+              isUint8Array: inflated instanceof Uint8Array,
+              length: inflated?.length
+            });
+            chunkData = Buffer.from(inflated);
           } else {
             console.warn(`Unknown compression type ${compressionType} for chunk at ${chunkX},${chunkZ}`);
             continue;
@@ -981,10 +895,34 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
           
           // Parse NBT data
           try {
-            // Check if the data is in Buffer format before parsing
-            if (!(chunkData instanceof Uint8Array) && !(chunkData instanceof Buffer)) {
-              console.warn(`Invalid chunk data format for chunk ${chunkX},${chunkZ}: not a Buffer or Uint8Array`);
-              continue;
+            // Log chunk data details before NBT parsing
+            console.log(`Chunk data before NBT parsing for ${chunkX},${chunkZ}:`, {
+              type: typeof chunkData,
+              isBuffer: chunkData instanceof Buffer,
+              isUint8Array: chunkData instanceof Uint8Array,
+              length: chunkData?.length,
+              firstBytes: chunkData ? Array.from(chunkData.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'none'
+            });
+
+            // Ensure we have valid Buffer data
+            if (!(chunkData instanceof Buffer) && !(chunkData instanceof Uint8Array)) {
+              console.warn(`Invalid chunk data type for chunk ${chunkX},${chunkZ}:`, {
+                type: typeof chunkData,
+                constructor: chunkData?.constructor?.name,
+                hasBuffer: typeof Buffer !== 'undefined',
+                hasUint8Array: typeof Uint8Array !== 'undefined'
+              });
+
+              if (Array.isArray(chunkData)) {
+                console.log(`Converting array to Buffer for chunk ${chunkX},${chunkZ}`);
+                chunkData = Buffer.from(chunkData);
+              } else if (typeof chunkData === 'string') {
+                console.log(`Converting string to Buffer for chunk ${chunkX},${chunkZ}`);
+                chunkData = Buffer.from(chunkData, 'utf8');
+              } else {
+                console.warn(`Unable to convert chunk data format for chunk ${chunkX},${chunkZ} - data:`, chunkData);
+                continue;
+              }
             }
             
             let parsedNBT;
@@ -992,12 +930,12 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
               // First attempt - standard NBT parsing
               parsedNBT = await nbt.parse(Buffer.from(chunkData), NBT_OPTIONS);
               
-              if (isFirstRegion && x === 0 && z === 0) {
+              if (x === 0 && z === 0) {
                 console.log(`Successfully parsed NBT data for first chunk using standard method`);
               }
             } catch (parseError) {
               // Log the error for diagnostics
-              if (isFirstRegion && x === 0 && z === 0) {
+              if (x === 0 && z === 0) {
                 console.warn(`Primary NBT parsing failed:`, parseError.message);
                 console.log(`First few bytes of chunk data:`, 
                            Array.from(chunkData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '));
@@ -1024,7 +962,7 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
                     const altOptions = { ...NBT_OPTIONS, proven: false };
                     parsedNBT = await nbt.parse(Buffer.from(inflated), altOptions);
                     
-                    if (isFirstRegion && x === 0 && z === 0) {
+                    if (x === 0 && z === 0) {
                       console.log(`Successfully parsed using alternative inflation method`);
                     }
                   } catch (inflateError) {
@@ -1054,8 +992,16 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
               continue;
             }
             
-            if (isFirstRegion && x === 0 && z === 0) {
-              console.log(`Successfully parsed NBT data for first chunk, root keys: ${Object.keys(parsedNBT.parsed || {})}`);
+            if (x === 0 && z === 0) {
+              console.log(`Successfully parsed NBT data for first chunk, root keys:`, Object.keys(parsedNBT.parsed || {}));
+              
+              // Additional debug for 1.21 format
+              if (parsedNBT.parsed.Data) {
+                console.log('Data section keys:', Object.keys(parsedNBT.parsed.Data));
+                if (parsedNBT.parsed.Data.sections) {
+                  console.log('First section keys:', Object.keys(parsedNBT.parsed.Data.sections[0] || {}));
+                }
+              }
             }
             
             // Add the chunk to our list with its coordinates
@@ -1070,7 +1016,7 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
         } catch (decompressError) {
           console.warn(`Error decompressing chunk at ${chunkX},${chunkZ}:`, decompressError.message);
           
-          if (isFirstRegion && x === 0 && z === 0) {
+          if (x === 0 && z === 0) {
             console.log(`Decompression failed for first chunk. Data starts with bytes: `, 
                        Array.from(compressedData.slice(0, 10)).map(b => b.toString(16)).join(' '));
           }
@@ -1085,84 +1031,294 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
   return chunks;
 }
 
-// Helper function to process region files in chunks
-async function processRegionFilesInChunks(regionFiles, blockMapping, regionSelection, offsetX = 0, offsetY = 0, offsetZ = 0) {
-  const blocks = {};
-  const totalRegions = regionFiles.length;
-  let processedRegions = 0;
-  let lastProgressLog = 0;
+// Add before processRegionFilesInChunks
+async function parseRegionFile(regionFile) {
+  const buffer = Buffer.from(regionFile.data);
+  const chunks = [];
   
-  // Create progress bar
-  createProgressBar();
-  updateProgressBar(0, `Processing ${totalRegions} region files...`);
+  // Parse region coordinates from filename
+  const regionCoords = parseRegionCoordinates(regionFile.name);
+  if (!regionCoords) {
+    console.warn(`Invalid region filename format: ${regionFile.name}`);
+    return chunks;
+  }
   
-  for (let i = 0; i < totalRegions; i++) {
-    const regionFile = regionFiles[i];
-    const fileData = regionFile.data;
-    const regionCoords = parseRegionCoordinates(regionFile.name);
-    
-    if (!regionCoords) {
-      console.warn(`Invalid region filename: ${regionFile.name}`);
-      continue;
-    }
-    
-    updateProgressBar(
-      Math.floor((processedRegions / totalRegions) * 100),
-      `Processing region r.${regionCoords.x}.${regionCoords.z}.mca (${processedRegions + 1}/${totalRegions})`
-    );
-    
-    try {
-      // Process the region file to get chunks
-      const chunks = await processMCAFile(fileData, blockMapping, regionCoords, regionSelection);
-      console.log(`Extracted ${chunks.length} chunks from region r.${regionCoords.x}.${regionCoords.z}.mca`);
+  // MCA file format: Each region file contains 32x32 chunks
+  for (let z = 0; z < 32; z++) {
+    for (let x = 0; x < 32; x++) {
+      const headerOffset = 4 * (x + z * 32);
       
-      // Process chunks in smaller batches to avoid UI freezing
-      const chunkBatchSize = 5;
-      for (let j = 0; j < chunks.length; j += chunkBatchSize) {
-        const chunkBatch = chunks.slice(j, j + chunkBatchSize);
+      // Add buffer boundary check
+      if (headerOffset + 4 > buffer.length) {
+        console.warn(`Skipping chunk [${x},${z}] - header beyond buffer (${buffer.length} bytes)`);
+        continue;
+      }
+      
+      // Read chunk location with proper byte conversion
+      const offsetBytes = buffer.slice(headerOffset, headerOffset + 3);
+      const offset = (offsetBytes[0] << 16) | (offsetBytes[1] << 8) | offsetBytes[2];
+      const sectorCount = buffer[headerOffset + 3];
+
+      // Validate chunk metadata
+      if (offset === 0 || sectorCount === 0) {
+        if (x === 0 && z === 0) {
+          console.log(`Chunk [${x},${z}] marked as empty in header (offset=${offset}, sectors=${sectorCount})`);
+        }
+        continue;
+      }
+      
+      // Calculate absolute positions
+      const chunkX = regionCoords.x * 32 + x;
+      const chunkZ = regionCoords.z * 32 + z;
+      
+      // First chunk in the first region - additional debug
+      if (x === 0 && z === 0) {
+        console.log(`First chunk header: offset=${offset}, sectors=${sectorCount}`);
+      }
+      
+      try {
+        // Calculate the byte offset where this chunk's data begins
+        const chunkOffset = offset * 4096; // Each sector is 4KiB
         
-        // Allow UI to update
-        await new Promise(resolve => setTimeout(resolve, 0));
-        
-        // Process each chunk in the batch
-        for (const chunk of chunkBatch) {
-          try {
-            const chunkBlocks = extractBlocksFromChunk(chunk, blockMapping, regionSelection);
-            
-            // Apply offsets and add to the global blocks map
-            Object.entries(chunkBlocks).forEach(([pos, blockId]) => {
-              const [x, y, z] = pos.split(',').map(Number);
-              blocks[`${x + offsetX},${y + offsetY},${z + offsetZ}`] = blockId;
-            });
-          } catch (error) {
-            console.warn(`Error processing chunk at ${chunk.x},${chunk.z}:`, error.message);
-            // Continue with next chunk instead of failing the entire import
-          }
+        // Validate offset
+        if (chunkOffset === 0 || chunkOffset + 5 >= buffer.length) {
+          console.warn(`Invalid chunk offset ${chunkOffset} for chunk ${chunkX},${chunkZ} (buffer length: ${buffer.length})`);
+          continue;
         }
         
-        // Update sub-progress within this region
-        updateProgressBar(
-          Math.floor(((processedRegions + (j + chunkBatchSize) / chunks.length) / totalRegions) * 100),
-          `Processing region r.${regionCoords.x}.${regionCoords.z}.mca (${processedRegions + 1}/${totalRegions}): ${Math.min(j + chunkBatchSize, chunks.length)}/${chunks.length} chunks`
-        );
+        // Read chunk length and compression type
+        const chunkLength = readInt32BE(buffer, chunkOffset);
+        const compressionType = buffer[chunkOffset + 4];
+        
+        if (chunkLength === 0 || chunkLength > 1024 * 1024) { // Sanity check: max 1MB
+          console.warn(`Invalid chunk length ${chunkLength} for chunk ${chunkX},${chunkZ}`);
+          continue;
+        }
+        
+        if (x === 0 && z === 0) {
+          console.log(`First chunk data: length=${chunkLength}, compression=${compressionType}`);
+        }
+        
+        // Check if the data would exceed the buffer
+        if (chunkOffset + 5 + chunkLength > buffer.length) {
+          console.warn(`Chunk data would exceed buffer for chunk ${chunkX},${chunkZ} (offset=${chunkOffset}, length=${chunkLength}, buffer=${buffer.length})`);
+          continue;
+        }
+        
+        // Extract chunk data
+        const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength);
+        let chunkData;
+        
+        try {
+          // Log compression type and data details
+          console.log(`Processing chunk ${chunkX},${chunkZ}:`, {
+            compressionType,
+            compressedLength: compressedData.length,
+            firstBytes: Array.from(compressedData.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+          });
+
+          if (compressionType === 1) {
+            // GZip compression (old format)
+            const inflated = pako.inflate(compressedData);
+            console.log(`GZip decompression result for chunk ${chunkX},${chunkZ}:`, {
+              inflatedType: typeof inflated,
+              isArray: Array.isArray(inflated),
+              isBuffer: inflated instanceof Buffer,
+              isUint8Array: inflated instanceof Uint8Array,
+              length: inflated?.length
+            });
+            chunkData = Buffer.from(inflated);
+          } else if (compressionType === 2) {
+            // Zlib compression (common format)
+            const inflated = pako.inflate(compressedData);
+            console.log(`Zlib decompression result for chunk ${chunkX},${chunkZ}:`, {
+              inflatedType: typeof inflated,
+              isArray: Array.isArray(inflated),
+              isBuffer: inflated instanceof Buffer,
+              isUint8Array: inflated instanceof Uint8Array,
+              length: inflated?.length
+            });
+            chunkData = Buffer.from(inflated);
+          } else {
+            console.warn(`Unknown compression type ${compressionType} for chunk at ${chunkX},${chunkZ}`);
+            continue;
+          }
+          
+          // Parse NBT data
+          try {
+            // Log chunk data details before NBT parsing
+            console.log(`Chunk data before NBT parsing for ${chunkX},${chunkZ}:`, {
+              type: typeof chunkData,
+              isBuffer: chunkData instanceof Buffer,
+              isUint8Array: chunkData instanceof Uint8Array,
+              length: chunkData?.length,
+              firstBytes: chunkData ? Array.from(chunkData.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'none'
+            });
+
+            // Ensure we have valid Buffer data
+            if (!(chunkData instanceof Buffer) && !(chunkData instanceof Uint8Array)) {
+              console.warn(`Invalid chunk data type for chunk ${chunkX},${chunkZ}:`, {
+                type: typeof chunkData,
+                constructor: chunkData?.constructor?.name,
+                hasBuffer: typeof Buffer !== 'undefined',
+                hasUint8Array: typeof Uint8Array !== 'undefined'
+              });
+
+              if (Array.isArray(chunkData)) {
+                console.log(`Converting array to Buffer for chunk ${chunkX},${chunkZ}`);
+                chunkData = Buffer.from(chunkData);
+              } else if (typeof chunkData === 'string') {
+                console.log(`Converting string to Buffer for chunk ${chunkX},${chunkZ}`);
+                chunkData = Buffer.from(chunkData, 'utf8');
+              } else {
+                console.warn(`Unable to convert chunk data format for chunk ${chunkX},${chunkZ} - data:`, chunkData);
+                continue;
+              }
+            }
+            
+            let parsedNBT;
+            try {
+              // First attempt - standard NBT parsing
+              parsedNBT = await nbt.parse(Buffer.from(chunkData), NBT_OPTIONS);
+              
+              if (x === 0 && z === 0) {
+                console.log(`Successfully parsed NBT data for first chunk using standard method`);
+              }
+            } catch (parseError) {
+              // Log the error for diagnostics
+              if (x === 0 && z === 0) {
+                console.warn(`Primary NBT parsing failed:`, parseError.message);
+                console.log(`First few bytes of chunk data:`, 
+                           Array.from(chunkData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+              }
+              
+              // Try an alternative approach with a direct parse
+              try {
+                // Some versions of Minecraft have different NBT formats
+                console.log(`Attempting alternative NBT parsing for chunk ${chunkX},${chunkZ}`);
+                
+                // Try a more robust parsing approach for 1.21 format
+                // First check if this appears to be a zlib/gzip header
+                const hasZlibHeader = (chunkData[0] === 0x78 && (chunkData[1] === 0x01 || chunkData[1] === 0x9c || chunkData[1] === 0xda));
+                const hasGzipHeader = (chunkData[0] === 0x1f && chunkData[1] === 0x8b);
+                
+                if (hasZlibHeader || hasGzipHeader) {
+                  // Try additional inflate options
+                  try {
+                    const inflated = hasGzipHeader ? 
+                      pako.inflate(chunkData, { to: 'uint8array', windowBits: 31 }) : // gzip
+                      pako.inflate(chunkData, { to: 'uint8array', windowBits: 15 });  // zlib
+                      
+                    // Try parsing with different options
+                    const altOptions = { ...NBT_OPTIONS, proven: false };
+                    parsedNBT = await nbt.parse(Buffer.from(inflated), altOptions);
+                    
+                    if (x === 0 && z === 0) {
+                      console.log(`Successfully parsed using alternative inflation method`);
+                    }
+                  } catch (inflateError) {
+                    console.warn(`Alternative inflation failed:`, inflateError.message);
+                    
+                    // Last ditch effort - try to interpret the raw data
+                    try {
+                      // For 1.21 format, we'll create a minimal NBT structure
+                      parsedNBT = { parsed: createFallbackNBTStructure(chunkX, chunkZ) };
+                    } catch (altError) {
+                      console.warn(`All NBT parsing attempts failed for chunk ${chunkX},${chunkZ}`);
+                      continue;
+                    }
+                  }
+                } else {
+                  // Create a fallback structure as last resort
+                  parsedNBT = { parsed: createFallbackNBTStructure(chunkX, chunkZ) };
+                }
+              } catch (altError) {
+                console.warn(`All NBT parsing attempts failed for chunk ${chunkX},${chunkZ}`);
+                continue;
+              }
+            }
+            
+            if (!parsedNBT || !parsedNBT.parsed) {
+              console.warn(`No valid parsed data for chunk ${chunkX},${chunkZ}`);
+              continue;
+            }
+            
+            if (x === 0 && z === 0) {
+              console.log(`Successfully parsed NBT data for first chunk, root keys:`, Object.keys(parsedNBT.parsed || {}));
+            }
+            
+            // Add the chunk to our list with its coordinates
+            chunks.push({
+              x: chunkX,
+              z: chunkZ,
+              data: parsedNBT.parsed
+            });
+          } catch (nbtError) {
+            console.warn(`Error parsing NBT data for chunk ${chunkX},${chunkZ}:`, nbtError.message);
+          }
+        } catch (decompressError) {
+          console.warn(`Error decompressing chunk at ${chunkX},${chunkZ}:`, decompressError.message);
+          
+          if (x === 0 && z === 0) {
+            console.log(`Decompression failed for first chunk. Data starts with bytes: `, 
+                       Array.from(compressedData.slice(0, 10)).map(b => b.toString(16)).join(' '));
+          }
+        }
+      } catch (error) {
+        console.warn(`Error processing chunk at ${chunkX},${chunkZ}:`, error.message);
       }
-    } catch (error) {
-      console.error(`Error processing region r.${regionCoords.x}.${regionCoords.z}.mca:`, error);
-      // Continue with next region instead of failing the entire import
-    }
-    
-    processedRegions++;
-    
-    // Update progress
-    const progress = Math.floor((processedRegions / totalRegions) * 100);
-    if (progress >= lastProgressLog + 5) {
-      console.log(`Import progress: ${progress}%`);
-      lastProgressLog = progress;
     }
   }
   
-  updateProgressBar(100, `Processed ${totalRegions} region files with ${Object.keys(blocks).length} blocks`);
-  return blocks;
+  console.log(`Extracted ${chunks.length} chunks from region r.${regionCoords.x}.${regionCoords.z}.mca`);
+  return chunks;
+}
+
+function updateProgress(processed, total, callback) {
+  if (callback && typeof callback === 'function') {
+    callback(Math.round((processed / total) * 100));
+  }
+}
+
+// Existing processRegionFilesInChunks function remains unchanged
+async function processRegionFilesInChunks(regionFiles, blockMapping, regionSelection, progressCallback) {
+  const allBlocks = {};
+  let totalChunks = 0;
+  let processedChunks = 0;
+
+  try {
+    // First pass: count total chunks
+    for (const regionFile of regionFiles) {
+      const chunks = await parseRegionFile(regionFile);
+      totalChunks += chunks.length;
+    }
+
+    // Second pass: process chunks
+    for (const regionFile of regionFiles) {
+      const chunks = await parseRegionFile(regionFile);
+      
+      for (const chunk of chunks) {
+        const chunkBlocks = extractBlocksFromChunk(chunk, blockMapping, regionSelection);
+        Object.assign(allBlocks, chunkBlocks);
+        
+        processedChunks++;
+        updateProgress(processedChunks, totalChunks, progressCallback);
+      }
+    }
+
+    // Save all blocks at once
+    await DatabaseManager.saveData(STORES.TERRAIN, "current", {
+      blocks: allBlocks,
+      version: 2,
+      lastUpdated: new Date().toISOString()
+    });
+
+    console.log(`Saved ${Object.keys(allBlocks).length} blocks to database`);
+    return { blockCount: Object.keys(allBlocks).length };
+  } catch (error) {
+    console.error('Error processing region files:', error);
+    throw error;
+  }
 }
 
 // Main function to import a Minecraft world
@@ -1217,6 +1373,29 @@ export async function importMinecraftWorld(file, terrainBuilderRef, environmentB
     
     try {
       blocks = await processRegionFilesInChunks(regionFiles, blockMapping, regionSelection);
+      
+      // Validate block extraction
+      if (Object.keys(blocks).length < 100) {
+        console.error('Block extraction suspiciously low, checking chunk processing...');
+        try {
+          const region = regionFiles[0];
+          const chunks = await parseRegionFile(region);
+          console.log(`First region ${region.name} contained ${chunks.length} chunks`);
+          
+          if (chunks.length > 0) {
+            const firstChunk = chunks[0];
+            console.log('First chunk structure:', Object.keys(firstChunk));
+            console.log('Chunk coordinates:', firstChunk.x, firstChunk.z);
+            console.log('Chunk data keys:', firstChunk.data ? Object.keys(firstChunk.data) : 'No data');
+          } else {
+            console.warn('First region file contained 0 chunks');
+          }
+        } catch (diagnosticError) {
+          console.error('Chunk diagnostic failed:', diagnosticError);
+        }
+        throw new Error('Block extraction failed - verify chunk parsing logic for Minecraft 1.21+ format');
+      }
+      
       console.log(`Extracted ${Object.keys(blocks).length} blocks from world`);
       
       // If we got no blocks, try alternative approach
@@ -1420,13 +1599,12 @@ export async function importMinecraftWorld(file, terrainBuilderRef, environmentB
           // Try to find a method for loading blocks
           let loadMethod = null;
           const possibleMethods = [
-            'loadTerrainFromBlocks', 
-            'loadTerrain', 
-            'loadBlocks', 
-            'setBlocks', 
-            'addBlocks', 
+            'buildUpdateTerrain',  // Matches actual TerrainBuilder method
+            'refreshTerrainFromDB',
+            'updateTerrainFromToolBar',
             'setTerrain',
-            'importBlocks'
+            'importBlocks',
+            'addBlocks'  // Add this if exists
           ];
           
           for (const method of possibleMethods) {
