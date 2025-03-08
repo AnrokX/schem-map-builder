@@ -68,19 +68,21 @@ const unmappedBlockTracker = {
     }
 };
 
-// Modified loadBlockMappings function to use existing mapping.json
+// Modified loadBlockMappings function to use correct path
 async function loadBlockMappings() {
     try {
-        const mappingPath = path.join(__dirname, 'schem-map-builder', 'mapping.json');
+        // Fix the path to be relative to current directory
+        const mappingPath = path.join(__dirname, 'mapping.json');
         const rawData = fs.readFileSync(mappingPath, 'utf8');
         return JSON.parse(rawData);
     } catch (error) {
         console.error('Error loading block mappings:', error);
-        return {};
+        // Return empty mapping instead of {} to match expected structure
+        return { blocks: {} };
     }
 }
 
-// Update getFallbackBlockId to match SchematicConverter.js logic
+// Update getFallbackBlockId to use the correct mapping structure
 function getFallbackBlockId(blockName, blockMapping) {
     const plainName = blockName.replace('minecraft:', '');
     
@@ -97,8 +99,8 @@ function getFallbackBlockId(blockName, blockMapping) {
         return mappedId;
     }
 
-    // Try without minecraft: prefix
-    const withPrefix = `minecraft:${plainName}`;
+    // Try with minecraft: prefix if it's missing
+    const withPrefix = blockName.startsWith('minecraft:') ? blockName : `minecraft:${plainName}`;
     if (blockMapping.blocks && blockMapping.blocks[withPrefix]) {
         const mappedId = blockMapping.blocks[withPrefix].id;
         dynamicBlockMappings.set(plainName, mappedId);
@@ -106,28 +108,9 @@ function getFallbackBlockId(blockName, blockMapping) {
         return mappedId;
     }
 
-    // Try base name without block states
-    const baseName = blockName.split('[')[0];
-    if (blockMapping.blocks && blockMapping.blocks[baseName]) {
-        const mappedId = blockMapping.blocks[baseName].id;
-        dynamicBlockMappings.set(plainName, mappedId);
-        console.log(`Mapped ${blockName} to ID ${mappedId} (base name)`);
-        return mappedId;
-    }
-
-    // Try fallback category matching
-    for (const [category, fallbackBlock] of Object.entries(fallbackMapping)) {
-        if (category !== 'unknown' && plainName.toLowerCase().includes(category)) {
-            dynamicBlockMappings.set(plainName, fallbackBlock.id);
-            console.log(`Mapped ${plainName} to ${fallbackBlock.name} (ID: ${fallbackBlock.id})`);
-            return fallbackBlock.id;
-        }
-    }
-
-    // Use default stone block if no match found
-    dynamicBlockMappings.set(plainName, fallbackMapping.unknown.id);
-    console.log(`Using default stone block for ${plainName}`);
-    return fallbackMapping.unknown.id;
+    // Use stone as fallback (id: 19)
+    console.log(`Using fallback stone block for ${blockName}`);
+    return 19;
 }
 
 // Utility function to read a file as buffer
@@ -494,252 +477,93 @@ function safeStringifyChunk(data, maxLength = 500) {
 async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
     let blocks = {};
-    let totalValidChunks = 0;
-    let palette = [];
     
     try {
-        for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
-            for (let chunkX = 0; chunkX < 32; chunkX++) {
+        // Let's look at all chunks in the region file
+        for (let chunkX = 0; chunkX < 32; chunkX++) {
+            for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
                 const headerOffset = 4 * (chunkX + chunkZ * 32);
                 const offset = (buffer[headerOffset] << 16) | (buffer[headerOffset + 1] << 8) | buffer[headerOffset + 2];
                 
-                if (offset === 0) {
-                    if (chunkX === 0 && chunkZ === 0) console.log('Skipping empty chunk');
-                    continue;
-                }
+                if (offset === 0) continue;
                 
                 const chunkStart = offset * 4096;
-                if (chunkStart >= buffer.length) {
-                    if (chunkX < 3 && chunkZ < 3) console.log(`Invalid chunk offset at (${chunkX}, ${chunkZ}): ${chunkStart} >= ${buffer.length}`);
-                    continue;
-                }
+                if (chunkStart >= buffer.length) continue;
 
                 const length = (buffer[chunkStart] << 24) | (buffer[chunkStart + 1] << 16) | 
                              (buffer[chunkStart + 2] << 8) | buffer[chunkStart + 3];
                 
-                if (length <= 0 || chunkStart + length > buffer.length) {
-                    if (chunkX < 3 && chunkZ < 3) console.log(`Invalid chunk length at (${chunkX}, ${chunkZ}): ${length}`);
-                    continue;
-                }
+                if (length <= 0 || chunkStart + length > buffer.length) continue;
 
                 try {
                     const compressedData = buffer.slice(chunkStart + 5, chunkStart + 4 + length);
-                    const compressionType = buffer[chunkStart + 4];
-                    
-                    if (chunkX === 0 && chunkZ === 0) {
-                        console.log(`First chunk compression type: ${compressionType}`);
-                        console.log(`First chunk compressed size: ${compressedData.length} bytes`);
-                    }
-
-                    let decompressed;
-                    try {
-                        decompressed = pako.inflate(compressedData);
-                        if (chunkX === 0 && chunkZ === 0) {
-                            console.log(`Successfully decompressed first chunk: ${decompressed.length} bytes`);
-                        }
-                    } catch (err) {
-                        if (chunkX < 3 && chunkZ < 3) {
-                            console.log(`Decompression error at (${chunkX}, ${chunkZ}):`, err.message);
-                            console.log('Trying alternative decompression...');
-                        }
-                        // Try alternative decompression (skipping potential gzip header)
-                        decompressed = pako.inflate(compressedData.slice(2));
-                    }
-
+                    const decompressed = pako.inflate(compressedData);
                     const chunkData = await nbt.parse(Buffer.from(decompressed));
-                    totalValidChunks++;
-
-                    if (chunkX === 0 && chunkZ === 0) {
-                        console.log('\nFirst chunk NBT structure:');
-                        console.log(safeStringifyChunk(chunkData, 1000));
-                    }
-
-                    // Get the sections from the parsed NBT data
+                    
+                    // Find the sections array
                     const sections = findSectionsRecursively(chunkData.parsed?.value) || [];
                     
-                    if (sections.length > 0 && chunkX === 0 && chunkZ === 0) {
-                        console.log(`\nFound ${sections.length} sections in chunk`);
-                        console.log('Section Y values:', sections.map(s => s.Y?.value).join(', '));
-                    }
-
-                    let foundNonAirBlocks = false;
                     for (const section of sections) {
                         if (!section) continue;
                         
                         const sectionY = section.Y?.value || 0;
-                        
-                        // Get block states and palette
                         const blockStates = section.block_states?.value || {};
-                        palette = blockStates.palette?.value?.value || [];
+                        const palette = blockStates.palette?.value?.value || [];
+                        
+                        if (!palette.length) continue;
 
-                        // Get the block data array - handle both direct value and nested value cases
                         let data = blockStates.data?.value;
                         if (Array.isArray(blockStates.data?.value?.value)) {
                             data = blockStates.data.value.value;
                         }
 
-                        // Add validation before processing
-                        if (!palette || palette.length === 0) {
-                            console.log('Skipping empty palette section');
-                            continue;
-                        }
+                        if (!Array.isArray(data)) continue;
 
-                        let blockIndices = [];
-                        if (Array.isArray(data)) {
-                            const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
-                            const blocksPerLong = Math.floor(64 / bitsPerBlock);
-                            const mask = (1n << BigInt(bitsPerBlock)) - 1n;
+                        const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
+                        const blocksPerLong = Math.floor(64 / bitsPerBlock);
+                        const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
-                            // Process in NATURAL order (no reversal)
-                            for (let i = 0; i < data.length; i++) {
-                                let longValue;
-                                if (Array.isArray(data[i])) {
-                                    // Correct 64-bit reconstruction: [high, low] -> (high << 32) | low
-                                    longValue = (BigInt(data[i][0]) << 32n) | BigInt(data[i][1]);
-                                } else {
-                                    longValue = BigInt(data[i]);
-                                }
-
-                                // Extract bits LSB-first (Minecraft's actual packing order)
-                                for (let j = 0; j < blocksPerLong; j++) {
-                                    const shiftAmount = BigInt(j * bitsPerBlock);
-                                    const index = Number((longValue >> shiftAmount) & mask);
-                                    blockIndices.push(index % palette.length);
-                                }
+                        let blockIndex = 0;
+                        for (let i = 0; i < data.length; i++) {
+                            let longValue;
+                            if (Array.isArray(data[i])) {
+                                longValue = (BigInt(data[i][0]) << 32n) | BigInt(data[i][1]);
+                            } else {
+                                longValue = BigInt(data[i]);
                             }
-                            
-                            // Trim to exactly 4096 blocks
-                            blockIndices = blockIndices.slice(0, 4096);
-                        }
 
-                        // Add empty indices check
-                        if (blockIndices.length === 0) {
-                            continue;
-                        }
-
-                        // Only log the first non-air section we find
-                        const hasNonAirBlocks = palette.some(entry => {
-                            const blockName = typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
-                            return blockName && blockName !== 'minecraft:air';
-                        });
-
-                        if (hasNonAirBlocks) {
-                            if (!foundNonAirBlocks) {
-                                foundNonAirBlocks = true;
-                                console.log(`\nFound section with non-air blocks at Y=${sectionY}`);
-                                console.log('Block states:', safeStringifyChunk(blockStates, 500));
-                                console.log('Palette entries:', palette.length);
-                                palette.forEach((entry, idx) => {
-                                    const blockName = typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
-                                    console.log(`Palette entry ${idx}: ${blockName}`);
-                                });
-                                console.log('Block indices array:', blockIndices ? `length=${blockIndices.length}` : 'undefined');
-                                if (blockIndices && blockIndices.length > 0) {
-                                    console.log('First few indices:', blockIndices.slice(0, 5));
-                                    // Log what blocks these indices map to
-                                    console.log('First few blocks:', blockIndices.slice(0, 5).map(idx => {
-                                        const entry = palette[idx];
-                                        return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
-                                    }));
-                                    // Also log some non-zero indices if we find any
-                                    const nonZeroIndices = blockIndices.slice(0, 100).map((idx, i) => idx === 0 ? null : [i, idx]).filter(x => x);
-                                    if (nonZeroIndices.length > 0) {
-                                        console.log('First few non-zero indices:', nonZeroIndices.slice(0, 5));
-                                        console.log('Blocks at those positions:', nonZeroIndices.slice(0, 5).map(([i, idx]) => {
-                                            const entry = palette[idx];
-                                            return typeof entry === 'string' ? entry : (entry.Name?.value || entry.name?.value);
-                                        }));
-                                    }
+                            for (let j = 0; j < blocksPerLong && blockIndex < 4096; j++) {
+                                const shiftAmount = BigInt(j * bitsPerBlock);
+                                const index = Number((longValue >> shiftAmount) & mask);
+                                const block = palette[index % palette.length];
+                                const blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
+                                
+                                if (blockName && blockName !== 'minecraft:air') {
+                                    const worldX = chunkX * 16 + (blockIndex % 16);
+                                    const worldY = sectionY * 16 + Math.floor(blockIndex / 256);
+                                    const worldZ = chunkZ * 16 + Math.floor((blockIndex % 256) / 16);
+                                    
+                                    blockStatistics.trackBlock(blockName, worldY);
+                                    
+                                    if (!blocks[worldY]) blocks[worldY] = {};
+                                    if (!blocks[worldY][worldX]) blocks[worldY][worldX] = {};
+                                    blocks[worldY][worldX][worldZ] = blockName;
                                 }
-                            }
-                        } else {
-                            if (chunkX === 0 && chunkZ === 0 && sectionY === sections[0].Y?.value) {
-                                console.log(`\nSection Y=${sectionY} (air only)`);
-                            }
-                            continue;
-                        }
-
-                        // Process blocks in this section using the decoded indices
-                        for (let y = 0; y < 16; y++) {
-                            const worldY = sectionY * 16 + y;
-                            for (let z = 0; z < 16; z++) {
-                                for (let x = 0; x < 16; x++) {
-                                    const index = y * 256 + z * 16 + x;
-                                    if (index >= blockIndices.length) continue;
-                                    
-                                    const paletteIndex = blockIndices[index];
-                                    if (paletteIndex >= palette.length) continue;
-                                    
-                                    const block = palette[paletteIndex];
-                                    if (!block) continue;
-                                    
-                                    // Handle both string values and compound NBT values
-                                    let blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
-                                    if (!blockName || blockName === 'minecraft:air') continue;
-                                    
-                                    const worldX = chunkX * 16 + x;
-                                    const worldZ = chunkZ * 16 + z;
-                                    
-                                    if (chunkX === 0 && chunkZ === 0 && blockName !== 'minecraft:air') {
-                                        console.log(`Found block ${blockName} at ${worldX},${worldY},${worldZ}`);
-                                    }
-                                    
-                                    const mappedId = blockMapping[blockName]?.id || 37; // 37 is stone (fallback)
-                                    const hytopiaBlock = blockMapping[blockName]?.hytopiaBlock || 'stone';
-                                    const textureUri = blockMapping[blockName]?.textureUri || 'blocks/stone.png';
-
-                                    // Update the block storage to use these values
-                                    blocks[worldY] = blocks[worldY] || {};
-                                    blocks[worldY][worldX] = blocks[worldY][worldX] || {};
-                                    blocks[worldY][worldX][worldZ] = {
-                                        id: mappedId,
-                                        block: hytopiaBlock,
-                                        texture: textureUri
-                                    };
-                                    
-                                    // Determine mapping type
-                                    let mappingType = 'fallback';
-                                    if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                                        mappingType = 'exact';
-                                    } else if (blockMapping.blocks && blockMapping.blocks[`minecraft:${blockName.replace('minecraft:', '')}`]) {
-                                        mappingType = 'prefix';
-                                    } else if (blockMapping.blocks && blockMapping.blocks[blockName.split('[')[0]]) {
-                                        mappingType = 'base';
-                                    } else {
-                                        for (const category of Object.keys(fallbackMapping)) {
-                                            if (category !== 'unknown' && blockName.toLowerCase().includes(category)) {
-                                                mappingType = `fallback:${category}`;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    blockStatistics.trackBlock(blockName, worldY, mappingType);
-                                    
-                                    if (!dynamicBlockMappings.has(blockName)) {
-                                        unmappedBlockTracker.trackBlock(
-                                            blockName, 
-                                            `${worldX},${worldY},${worldZ}`, 
-                                            mappedId
-                                        );
-                                    }
-                                }
+                                
+                                blockIndex++;
                             }
                         }
                     }
-                } catch (error) {
-                    console.warn(`Chunk (${chunkX},${chunkZ}) error: ${error.message}`);
-                    continue; // Skip to next chunk
+                } catch (err) {
+                    continue;
                 }
             }
         }
-        console.log(`\nProcessed ${totalValidChunks} valid chunks`);
-
     } catch (error) {
-        console.error('Region analysis error:', error);
+        console.error('Error analyzing region:', error);
     }
     
-    return blocks; // Now guaranteed to be an object
+    return blocks;
 }
 
 // Run the test if this file is run directly
