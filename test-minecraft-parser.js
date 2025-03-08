@@ -499,9 +499,10 @@ function safeStringifyChunk(data, maxLength = 500) {
 // Helper function to analyze a single region file
 async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
-    const blocks = {};
+    let blocks = {};
     let totalValidChunks = 0;
-    
+    let palette = []; // Moved to higher scope
+
     try {
         for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
             for (let chunkX = 0; chunkX < 32; chunkX++) {
@@ -573,38 +574,41 @@ async function analyzeRegionFile(buffer) {
                         
                         const sectionY = section.Y?.value || 0;
                         
-                        // Get block states from the section
+                        // Get block states and palette
                         const blockStates = section.block_states?.value || {};
-                        const palette = blockStates.palette?.value?.value || [];
-                        
+                        palette = blockStates.palette?.value?.value || []; // Assign to outer scope
+
                         // Get the block data array - handle both direct value and nested value cases
                         let data = blockStates.data?.value;
                         if (Array.isArray(blockStates.data?.value?.value)) {
                             data = blockStates.data.value.value;
                         }
 
-                        // Modify the block index extraction logic
+                        // Modified 64-bit handling
                         let blockIndices = [];
                         if (Array.isArray(data)) {
                             const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
                             const blocksPerLong = Math.floor(64 / bitsPerBlock);
                             const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
-                            // Process in reverse order to account for endianness
+                            // Process in reverse long order
                             for (let i = data.length - 1; i >= 0; i--) {
-                                let longValue = BigInt(data[i]);
+                                let longValue;
                                 if (Array.isArray(data[i])) {
-                                    longValue = (BigInt(data[i][0]) << 32n) | BigInt(data[i][1]);
+                                    // Swap array elements for correct 64-bit reconstruction
+                                    longValue = (BigInt(data[i][1]) << 32n) | BigInt(data[i][0]);
+                                } else {
+                                    longValue = BigInt(data[i]);
                                 }
 
-                                // Extract blocks in least-significant-bit-first order
-                                for (let j = 0; j < blocksPerLong; j++) {
-                                    const index = Number((longValue >> BigInt(j * bitsPerBlock)) & mask);
-                                    blockIndices.push(index % palette.length); // Ensure index stays within palette bounds
+                                // Extract bits MSB-first
+                                for (let j = blocksPerLong - 1; j >= 0; j--) {
+                                    const shiftAmount = BigInt(j * bitsPerBlock);
+                                    const index = Number((longValue >> shiftAmount) & mask);
+                                    blockIndices.push(index % palette.length);
                                 }
                             }
-
-                            // Trim excess blocks if we over-read
+                            
                             blockIndices = blockIndices.slice(0, 4096);
                         }
 
@@ -716,6 +720,14 @@ async function analyzeRegionFile(buffer) {
             }
         }
         console.log(`\nProcessed ${totalValidChunks} valid chunks`);
+
+        // Move validation inside try block where palette exists
+        if (blockIndices.every(i => i === 0)) {
+            console.warn('[WARNING] All block indices are zero!');
+            console.log('Palette entries:', palette.map((p, i) => 
+                `${i}: ${p.Name?.value || p}`));
+        }
+
     } catch (error) {
         console.error('Error analyzing region file:', error);
     }
