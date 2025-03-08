@@ -501,7 +501,8 @@ async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
     let blocks = {};
     let totalValidChunks = 0;
-    let palette = []; // Moved to higher scope
+    let palette = []; // Moved to function scope
+    let blockIndices = []; // Initialize at top level
 
     try {
         for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
@@ -576,7 +577,7 @@ async function analyzeRegionFile(buffer) {
                         
                         // Get block states and palette
                         const blockStates = section.block_states?.value || {};
-                        palette = blockStates.palette?.value?.value || []; // Assign to outer scope
+                        palette = blockStates.palette?.value?.value || [];
 
                         // Get the block data array - handle both direct value and nested value cases
                         let data = blockStates.data?.value;
@@ -584,32 +585,39 @@ async function analyzeRegionFile(buffer) {
                             data = blockStates.data.value.value;
                         }
 
-                        // Modified 64-bit handling
-                        let blockIndices = [];
+                        // Modified block state decoding logic
+                        blockIndices = [];
                         if (Array.isArray(data)) {
                             const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
                             const blocksPerLong = Math.floor(64 / bitsPerBlock);
                             const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
-                            // Process in reverse long order
-                            for (let i = data.length - 1; i >= 0; i--) {
+                            // Process in NATURAL order (no reversal)
+                            for (let i = 0; i < data.length; i++) {
                                 let longValue;
                                 if (Array.isArray(data[i])) {
-                                    // Swap array elements for correct 64-bit reconstruction
-                                    longValue = (BigInt(data[i][1]) << 32n) | BigInt(data[i][0]);
+                                    // Correct 64-bit reconstruction: [high, low] -> (high << 32) | low
+                                    longValue = (BigInt(data[i][0]) << 32n) | BigInt(data[i][1]);
                                 } else {
                                     longValue = BigInt(data[i]);
                                 }
 
-                                // Extract bits MSB-first
-                                for (let j = blocksPerLong - 1; j >= 0; j--) {
+                                // Extract bits LSB-first (Minecraft's actual packing order)
+                                for (let j = 0; j < blocksPerLong; j++) {
                                     const shiftAmount = BigInt(j * bitsPerBlock);
                                     const index = Number((longValue >> shiftAmount) & mask);
                                     blockIndices.push(index % palette.length);
                                 }
                             }
                             
+                            // Trim to exactly 4096 blocks
                             blockIndices = blockIndices.slice(0, 4096);
+                        }
+
+                        // Add this validation check BEFORE processing blocks
+                        if (blockIndices.length === 0) {
+                            console.warn('[WARNING] Empty block indices array!');
+                            return; // Skip this section
                         }
 
                         // Only log the first non-air section we find
@@ -720,13 +728,6 @@ async function analyzeRegionFile(buffer) {
             }
         }
         console.log(`\nProcessed ${totalValidChunks} valid chunks`);
-
-        // Move validation inside try block where palette exists
-        if (blockIndices.every(i => i === 0)) {
-            console.warn('[WARNING] All block indices are zero!');
-            console.log('Palette entries:', palette.map((p, i) => 
-                `${i}: ${p.Name?.value || p}`));
-        }
 
     } catch (error) {
         console.error('Error analyzing region file:', error);
