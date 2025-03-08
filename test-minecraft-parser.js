@@ -68,18 +68,15 @@ const unmappedBlockTracker = {
     }
 };
 
-// Add loadBlockMapping function from SchematicConverter.js
-async function loadBlockMapping(mappingPath = 'mapping.json') {
+// Modified loadBlockMappings function to use existing mapping.json
+async function loadBlockMappings() {
     try {
-        console.log(`Attempting to load block mapping from: ${mappingPath}`);
-        const data = await fs.promises.readFile(mappingPath, 'utf8');
-        const mappingData = JSON.parse(data);
-        console.log(`Successfully loaded mapping with ${Object.keys(mappingData.blocks || {}).length} block definitions`);
-        return mappingData;
+        const mappingPath = path.join(__dirname, 'schem-map-builder', 'mapping.json');
+        const rawData = fs.readFileSync(mappingPath, 'utf8');
+        return JSON.parse(rawData);
     } catch (error) {
-        console.error(`Error loading block mapping file: ${error.message}`);
-        console.log('Using default fallback mappings');
-        return defaultBlockMapping;
+        console.error('Error loading block mappings:', error);
+        return {};
     }
 }
 
@@ -293,7 +290,7 @@ async function testMinecraftWorldParsing(worldFilePath) {
         const buffer = await readFileAsBuffer(worldFilePath);
         
         // Load block mapping first
-        const blockMapping = await loadBlockMapping();
+        const blockMapping = await loadBlockMappings();
         console.log(`Loaded ${Object.keys(blockMapping.blocks || {}).length} block mappings`);
 
         // Load the ZIP file
@@ -467,17 +464,14 @@ async function analyzeRegionFiles(zip, basePath) {
     
     // Process each region file until we find blocks
     for (const region of regionFiles) {
-        console.log(`\nAnalyzing region file: ${region.path}`);
-        
+        console.log(`Analyzing region file: ${region.path}`);
         const regionBuffer = await region.file.async('nodebuffer');
-        const blocks = await analyzeRegionFile(regionBuffer);
+        const blocks = await analyzeRegionFile(regionBuffer) || {};
         
-        // If we found blocks in this region, we can stop
-        if (Object.keys(blocks).length > 0) {
-            console.log(`Found ${Object.keys(blocks).length} blocks in ${region.path}`);
+        // Add null check before Object.keys
+        if (blocks && Object.keys(blocks).length > 0) {
+            console.log(`Found ${Object.keys(blocks).length} blocks`);
             break;
-        } else {
-            console.log(`No blocks found in ${region.path}, trying next region file...`);
         }
     }
 }
@@ -501,9 +495,8 @@ async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
     let blocks = {};
     let totalValidChunks = 0;
-    let palette = []; // Moved to function scope
-    let blockIndices = []; // Initialize at top level
-
+    let palette = [];
+    
     try {
         for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
             for (let chunkX = 0; chunkX < 32; chunkX++) {
@@ -585,8 +578,13 @@ async function analyzeRegionFile(buffer) {
                             data = blockStates.data.value.value;
                         }
 
-                        // Modified block state decoding logic
-                        blockIndices = [];
+                        // Add validation before processing
+                        if (!palette || palette.length === 0) {
+                            console.log('Skipping empty palette section');
+                            continue;
+                        }
+
+                        let blockIndices = [];
                         if (Array.isArray(data)) {
                             const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
                             const blocksPerLong = Math.floor(64 / bitsPerBlock);
@@ -614,10 +612,9 @@ async function analyzeRegionFile(buffer) {
                             blockIndices = blockIndices.slice(0, 4096);
                         }
 
-                        // Add this validation check BEFORE processing blocks
+                        // Add empty indices check
                         if (blockIndices.length === 0) {
-                            console.warn('[WARNING] Empty block indices array!');
-                            return; // Skip this section
+                            continue;
                         }
 
                         // Only log the first non-air section we find
@@ -687,8 +684,18 @@ async function analyzeRegionFile(buffer) {
                                         console.log(`Found block ${blockName} at ${worldX},${worldY},${worldZ}`);
                                     }
                                     
-                                    const mappedId = getFallbackBlockId(blockName, blockMapping);
-                                    blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
+                                    const mappedId = blockMapping[blockName]?.id || 37; // 37 is stone (fallback)
+                                    const hytopiaBlock = blockMapping[blockName]?.hytopiaBlock || 'stone';
+                                    const textureUri = blockMapping[blockName]?.textureUri || 'blocks/stone.png';
+
+                                    // Update the block storage to use these values
+                                    blocks[worldY] = blocks[worldY] || {};
+                                    blocks[worldY][worldX] = blocks[worldY][worldX] || {};
+                                    blocks[worldY][worldX][worldZ] = {
+                                        id: mappedId,
+                                        block: hytopiaBlock,
+                                        texture: textureUri
+                                    };
                                     
                                     // Determine mapping type
                                     let mappingType = 'fallback';
@@ -721,19 +728,18 @@ async function analyzeRegionFile(buffer) {
                         }
                     }
                 } catch (error) {
-                    if (chunkX < 3 && chunkZ < 3) {
-                        console.warn(`Error processing chunk at (${chunkX}, ${chunkZ}):`, error.message);
-                    }
+                    console.warn(`Chunk (${chunkX},${chunkZ}) error: ${error.message}`);
+                    continue; // Skip to next chunk
                 }
             }
         }
         console.log(`\nProcessed ${totalValidChunks} valid chunks`);
 
     } catch (error) {
-        console.error('Error analyzing region file:', error);
+        console.error('Region analysis error:', error);
     }
     
-    return blocks;
+    return blocks; // Now guaranteed to be an object
 }
 
 // Run the test if this file is run directly
