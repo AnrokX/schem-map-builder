@@ -446,7 +446,7 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
     // Check if the data is valid
     if (!chunk.data) {
       console.warn(`Empty chunk data for chunk ${chunkX},${chunkZ}`);
-      return generateFallbackChunk(chunkX, chunkZ, regionSelection);
+      // return generateFallbackChunk(chunkX, chunkZ, regionSelection);
     }
 
     // DEBUG: Log the top-level keys for the first chunk to understand the structure
@@ -560,7 +560,7 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
       // If we still don't have sections, use the fallback grid
       if (!sections || sections.length === 0) {
         console.log(`No sections found in chunk ${chunkX},${chunkZ}, generating fallback terrain`);
-        return generateFallbackChunk(chunkX, chunkZ, regionSelection);
+        // return generateFallbackChunk(chunkX, chunkZ, regionSelection);
       }
     }
     
@@ -732,45 +732,13 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
     console.log(`Extracted ${Object.keys(blocks).length} blocks from chunk ${chunkX},${chunkZ}`);
   } catch (error) {
     console.error(`Error processing chunk ${chunkX},${chunkZ}:`, error);
-    return generateFallbackChunk(chunkX, chunkZ, regionSelection);
+    // return generateFallbackChunk(chunkX, chunkZ, regionSelection);
   }
   
   // If we couldn't extract any blocks, use fallback
   if (Object.keys(blocks).length === 0) {
     console.log(`No blocks extracted from chunk ${chunkX},${chunkZ}, using fallback`);
-    return generateFallbackChunk(chunkX, chunkZ, regionSelection);
-  }
-  
-  return blocks;
-}
-
-// Helper function to generate a fallback chunk when extraction fails
-function generateFallbackChunk(chunkX, chunkZ, regionSelection) {
-  const blocks = {};
-  const minX = chunkX * 16;
-  const minZ = chunkZ * 16;
-  
-  // Place a 16x16 grid of dirt blocks at y=0 
-  for (let x = 0; x < 16; x++) {
-    for (let z = 0; z < 16; z++) {
-      const worldX = minX + x;
-      const worldZ = minZ + z;
-      
-      // Skip if outside region selection
-      if (regionSelection && (
-          worldX < regionSelection.minX || worldX > regionSelection.maxX ||
-          worldZ < regionSelection.minZ || worldZ > regionSelection.maxZ)) {
-        continue;
-      }
-      
-      // Add a dirt block (fallback ID)
-      blocks[`${worldX},0,${worldZ}`] = getFallbackBlockId("minecraft:dirt");
-      
-      // Add stone blocks as border markers
-      if (x === 0 || x === 15 || z === 0 || z === 15) {
-        blocks[`${worldX},1,${worldZ}`] = getFallbackBlockId("minecraft:stone");
-      }
-    }
+    // return generateFallbackChunk(chunkX, chunkZ, regionSelection);
   }
   
   return blocks;
