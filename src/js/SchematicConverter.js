@@ -345,6 +345,58 @@ async function processBlocksInChunks(blockData, width, height, length, offsetX, 
   });
 }
 
+// Add new helper function to get mapping from block-shapes-minimal.json
+async function loadBlockShapesMapping(shapesUrl = '/block-shapes-minimal.json') {
+  try {
+    const response = await fetch(shapesUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const shapesData = await response.json();
+    
+    // Create optimized mapping structure
+    const blockMapping = {
+      blocks: {}
+    };
+
+    // Process each block in the shapes data
+    shapesData.blocks.forEach(block => {
+      if (block.id && block.hytopiaMapping) {
+        // Create mapping entry with minecraft prefix
+        const minecraftId = `minecraft:${block.id}`;
+        blockMapping.blocks[minecraftId] = {
+          id: getHytopiaIdFromMapping(block.hytopiaMapping),
+          hytopiaBlock: block.hytopiaMapping,
+          textureUri: `blocks/${block.hytopiaMapping}.png`
+        };
+      }
+    });
+
+    return blockMapping;
+  } catch (error) {
+    console.error('Error loading block shapes mapping:', error);
+    return null;
+  }
+}
+
+// Helper function to get Hytopia ID from mapping name
+function getHytopiaIdFromMapping(mappingName) {
+  // Define base block IDs (you can expand this based on your needs)
+  const baseIds = {
+    'stone': 37,
+    'dirt': 8,
+    'grass': 16,
+    'oak-planks': 28,
+    'log': 23,
+    'glass': 14,
+    'bricks': 1,
+    'water-still': 43,
+    // Add more mappings as needed
+  };
+  
+  return baseIds[mappingName] || 37; // Default to stone if mapping not found
+}
+
 // Main function to handle schematic file import
 export async function importSchematic(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json', regionSelection = null) {
   try {
@@ -363,35 +415,19 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
     // Initialize offset variables
     let offsetX = 0, offsetY = 0, offsetZ = 0;
     
-    // First try to use the mapping.json file
-    let blockMapping = await loadBlockMapping(mappingUrl);
-    console.log(`Loaded mapping with ${Object.keys(blockMapping.blocks || {}).length} block definitions`);
+    // Load both mapping sources
+    const [legacyMapping, shapesMapping] = await Promise.all([
+      fetch(mappingUrl).then(res => res.json()),
+      loadBlockShapesMapping()
+    ]);
 
-    // If we didn't get any block definitions, use a hardcoded mapping for common blocks
-    if (!blockMapping.blocks || Object.keys(blockMapping.blocks).length === 0) {
-      console.log('Using hardcoded mapping since no blocks were loaded from mapping.json');
-      blockMapping = {
-        blocks: {
-          "minecraft:stone": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:dirt": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:grass_block": { id: 16, hytopiaBlock: "grass", textureUri: "blocks/grass.png" },
-          "minecraft:oak_planks": { id: 28, hytopiaBlock: "oak-planks", textureUri: "blocks/oak-planks.png" },
-          "minecraft:oak_log": { id: 23, hytopiaBlock: "log", textureUri: "blocks/log.png" },
-          "minecraft:glass": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
-          "minecraft:bricks": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
-          "minecraft:black_wool": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:white_wool": { id: 43, hytopiaBlock: "water-still", textureUri: "blocks/water-still.png" },
-          "minecraft:red_wool": { id: 1, hytopiaBlock: "bricks", textureUri: "blocks/bricks.png" },
-          "minecraft:brown_wool": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:brown_concrete": { id: 8, hytopiaBlock: "dirt", textureUri: "blocks/dirt.png" },
-          "minecraft:white_concrete": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
-          "minecraft:black_concrete": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },
-          "minecraft:white_concrete_powder": { id: 14, hytopiaBlock: "glass", textureUri: "blocks/glass.png" },
-          "minecraft:coal_block": { id: 37, hytopiaBlock: "stone", textureUri: "blocks/stone.png" }
-        }
-      };
-      console.log(`Using hardcoded mapping with ${Object.keys(blockMapping.blocks).length} block definitions`);
-    }
+    // Combine mappings, preferring shapes mapping when available
+    const blockMapping = {
+      blocks: {
+        ...legacyMapping.blocks,
+        ...(shapesMapping?.blocks || {})
+      }
+    };
 
     // Read the file as ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
@@ -689,40 +725,23 @@ export async function importSchematic(file, terrainBuilderRef, environmentBuilde
                   
                   // If we found a valid block name, map it to HYTOPIA
                   if (blockName) {
-                    // Convert to HYTOPIA block ID
                     let hytopiaBlockId;
                     
-                    // First check our specialized block mapping
-                    if (specialBlockMapping[blockName]) {
-                      hytopiaBlockId = specialBlockMapping[blockName].id;
-                      console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} (specialized mapping)`);
-                    }
-                    // If not found, try in the standard mapping
-                    else if (blockMapping.blocks && blockMapping.blocks[blockName]) {
-                      hytopiaBlockId = blockMapping.blocks[blockName].id;
-                      console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
+                    // First try shapes mapping
+                    const shapesBlock = shapesMapping?.blocks[blockName];
+                    if (shapesBlock) {
+                      hytopiaBlockId = shapesBlock.id;
                     } else {
-                      // Try with different formats
-                      const shortName = blockName.replace('minecraft:', '');
-                      const baseName = blockName.split('[')[0]; // Remove block states
-                      
-                      if (blockMapping.blocks && blockMapping.blocks[`minecraft:${shortName}`]) {
-                        hytopiaBlockId = blockMapping.blocks[`minecraft:${shortName}`].id;
-                        console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} via minecraft:${shortName}`);
-                      } else if (blockMapping.blocks && blockMapping.blocks[baseName]) {
-                        hytopiaBlockId = blockMapping.blocks[baseName].id;
-                        console.log(`Mapped ${blockName} to HYTOPIA block ID ${hytopiaBlockId} via ${baseName}`);
+                      // Fall back to legacy mapping
+                      const legacyBlock = blockMapping.blocks[blockName];
+                      if (legacyBlock) {
+                        hytopiaBlockId = legacyBlock.id;
                       } else {
-                        // Use fallback mapping as last resort
-                        hytopiaBlockId = getFallbackBlockId(blockName);
-                        console.log(`Used fallback mapping for ${blockName} to HYTOPIA block ID ${hytopiaBlockId}`);
+                        // Try base name without states
+                        const baseName = blockName.split('[')[0];
+                        const baseBlock = blockMapping.blocks[baseName];
+                        hytopiaBlockId = baseBlock?.id || 37; // Default to stone
                       }
-                    }
-                    
-                    // Always use a default fallback if we still don't have a valid ID
-                    if (!hytopiaBlockId) {
-                      hytopiaBlockId = fallbackMapping.unknown.id;
-                      console.log(`Using default stone block for ${blockName} as last resort`);
                     }
                     
                     // Add to terrain data with correct coordinates

@@ -2,6 +2,7 @@ import { DatabaseManager, STORES } from "./DatabaseManager";
 import * as nbt from 'prismarine-nbt';
 import pako from 'pako';
 import { Buffer } from 'buffer';
+import { loadBlockShapesMapping, getHytopiaIdFromMapping } from './SchematicConverter';
 
 // Helper functions imported from SchematicConverter.js
 function isGzipped(data) {
@@ -193,47 +194,20 @@ function updateProgressBar(progress) {
 // Load block mapping file from a fetch request
 export async function loadBlockMapping(mappingUrl = '/mapping.json') {
   try {
-    // Ensure the URL is properly formatted
-    let fullUrl = mappingUrl;
-    if (!fullUrl.startsWith('http') && !fullUrl.startsWith('/')) {
-      fullUrl = '/' + fullUrl;
-    }
-    
-    console.log(`Attempting to load block mapping from: ${fullUrl}`);
-    
-    // Try several approaches to load the mapping file
-    let response;
-    try {
-      // First attempt with the provided URL
-      response = await fetch(fullUrl);
-      if (!response.ok) {
-        // If that fails, try with the absolute path from the root
-        console.log(`Trying alternative path: /mapping.json`);
-        response = await fetch('/mapping.json');
+    const [legacyMapping, shapesMapping] = await Promise.all([
+      fetch(mappingUrl).then(res => res.json()),
+      loadBlockShapesMapping()
+    ]);
+
+    return {
+      blocks: {
+        ...legacyMapping.blocks,
+        ...(shapesMapping?.blocks || {})
       }
-    } catch (err) {
-      // If fetch fails completely, try with a relative path
-      console.log(`Fetch failed, trying with relative path: ./mapping.json`);
-      response = await fetch('./mapping.json');
-    }
-    
-    if (!response || !response.ok) {
-      throw new Error(`Failed to load mapping file: ${response ? response.status + ' ' + response.statusText : 'No response'}`);
-    }
-    
-    const mappingData = await response.json();
-    console.log(`Successfully loaded mapping with ${Object.keys(mappingData.blocks || {}).length} block definitions`);
-    
-    // Debug the content of the loaded mapping
-    console.log('First few block mappings:', 
-      Object.entries(mappingData.blocks || {}).slice(0, 3)
-        .map(([name, data]) => `${name} -> ID ${data.id}`).join(', '));
-    
-    return mappingData;
+    };
   } catch (error) {
-    console.error(`Error loading block mapping file: ${error.message}`);
-    console.log('Using default fallback mappings');
-    // Instead of returning an empty object, return a minimal mapping for common blocks
+    console.error('Error loading block mapping:', error);
+    // Return fallback mapping
     return { 
       blocks: {
         "minecraft:stone": { id: 19, hytopiaBlock: "stone", textureUri: "blocks/stone.png" },

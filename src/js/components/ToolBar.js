@@ -13,7 +13,7 @@ import {
 	// eslint-disable-next-line no-unused-vars
 	importAssetPack
 } from '../ImportExport';
-import { importSchematic, previewSchematic } from '../SchematicConverter';
+import { importSchematic, loadBlockShapesMapping, previewSchematic } from '../SchematicConverter';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 import BlockImportModal from './BlockImportModal';
 import RegionSelectionModal from './RegionSelectionModal';
