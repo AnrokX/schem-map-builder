@@ -168,6 +168,38 @@ const blockStatistics = {
     }
 };
 
+// Add this helper function to find sections recursively
+function findSectionsRecursively(obj, depth = 0, maxDepth = 5) {
+    if (!obj || typeof obj !== 'object' || depth > maxDepth) {
+        return null;
+    }
+    
+    // Check if this is a sections array
+    if (Array.isArray(obj) && obj.length > 0 && 
+        obj.some(item => item && typeof item === 'object' && 
+        (item.Y !== undefined || item.y !== undefined))) {
+        return obj;
+    }
+    
+    // Check direct properties
+    if (obj.sections && Array.isArray(obj.sections)) {
+        return obj.sections;
+    }
+    if (obj.Sections && Array.isArray(obj.Sections)) {
+        return obj.Sections;
+    }
+    
+    // Recursively check all properties
+    for (const key in obj) {
+        if (obj[key] && typeof obj[key] === 'object') {
+            const found = findSectionsRecursively(obj[key], depth + 1, maxDepth);
+            if (found) return found;
+        }
+    }
+    
+    return null;
+}
+
 // Main test function
 async function testMinecraftWorldParsing(worldFilePath) {
     try {
@@ -356,38 +388,106 @@ async function analyzeRegionFiles(zip, basePath) {
 // Helper function to analyze a single region file
 async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
+    const blocks = {};
     
     try {
-        // Inside your block processing loop
-        for (let y = 0; y < 256; y++) {  // Add loop for Y coordinate
-            for (let z = 0; z < 16; z++) {  // Add loop for Z coordinate
-                for (let x = 0; x < 16; x++) {  // Add loop for X coordinate
-                    const block = palette[paletteIndex];
-                    if (!block) continue;
+        for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
+            for (let chunkX = 0; chunkX < 32; chunkX++) {
+                const headerOffset = 4 * (chunkX + chunkZ * 32);
+                const offset = (buffer[headerOffset] << 16) | (buffer[headerOffset + 1] << 8) | buffer[headerOffset + 2];
+                
+                if (offset === 0) continue;
+                
+                const chunkStart = offset * 4096;
+                const length = (buffer[chunkStart] << 24) | (buffer[chunkStart + 1] << 16) | 
+                             (buffer[chunkStart + 2] << 8) | buffer[chunkStart + 3];
+                
+                try {
+                    const compressedData = buffer.slice(chunkStart + 5, chunkStart + 4 + length);
+                    const decompressed = pako.inflate(compressedData);
+                    const chunkData = await nbt.parse(Buffer.from(decompressed));
                     
-                    let blockName = block.Name?.value || block.name?.value;
-                    if (!blockName || blockName === 'minecraft:air') continue;
-                    
-                    if (!blockName.includes(':')) {
-                        blockName = `minecraft:${blockName}`;
+                    // Find sections using recursive search
+                    const sections = findSectionsRecursively(chunkData.value) || [];
+                    console.log(`Found ${sections.length} sections in chunk (${chunkX}, ${chunkZ})`);
+
+                    for (const section of sections) {
+                        if (!section || typeof section !== 'object') continue;
+                        
+                        const sectionY = section.Y?.value || 0;
+                        console.log(`Processing section Y=${sectionY}`);
+
+                        // Handle 1.21 format where block states are nested
+                        const blockStatesContainer = section.block_states || section.BlockStates;
+                        if (!blockStatesContainer) {
+                            console.log(`No block states found in section Y=${sectionY}`);
+                            continue;
+                        }
+
+                        // Get palette from the new structure
+                        const palette = blockStatesContainer.palette?.value || 
+                                      blockStatesContainer.Palette?.value || [];
+                        
+                        if (!palette.length) {
+                            console.log(`No palette found in section Y=${sectionY}`);
+                            continue;
+                        }
+
+                        // Get block states data
+                        const blockStates = blockStatesContainer.data?.value || [];
+                        
+                        if (!blockStates.length) {
+                            console.log(`No block states data found in section Y=${sectionY}`);
+                            continue;
+                        }
+
+                        console.log(`Processing section Y=${sectionY} with palette size ${palette.length}`);
+
+                        // Process blocks in this section
+                        for (let y = 0; y < 16; y++) {
+                            const worldY = sectionY * 16 + y;
+                            for (let z = 0; z < 16; z++) {
+                                for (let x = 0; x < 16; x++) {
+                                    const index = y * 256 + z * 16 + x;
+                                    const paletteIndex = blockStates[index] || 0;
+                                    
+                                    if (paletteIndex >= palette.length) continue;
+                                    
+                                    const block = palette[paletteIndex];
+                                    if (!block) continue;
+                                    
+                                    let blockName = block.Name?.value || block.name?.value;
+                                    if (!blockName || blockName === 'minecraft:air') continue;
+                                    
+                                    const worldX = chunkX * 16 + x;
+                                    const worldZ = chunkZ * 16 + z;
+                                    
+                                    const mappedId = getFallbackBlockId(blockName);
+                                    blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
+                                    
+                                    blockStatistics.trackBlock(blockName, worldY);
+                                    
+                                    if (!dynamicBlockMappings.has(blockName)) {
+                                        unmappedBlockTracker.trackBlock(
+                                            blockName, 
+                                            `${worldX},${worldY},${worldZ}`, 
+                                            mappedId
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
-                    
-                    const mappedId = getFallbackBlockId(blockName);
-                    blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
-                    
-                    // Add statistics tracking
-                    blockStatistics.trackBlock(blockName, worldY);
-                    
-                    // Track unmapped blocks
-                    if (!dynamicBlockMappings.has(blockName)) {
-                        unmappedBlockTracker.trackBlock(blockName, `${worldX},${worldY},${worldZ}`, mappedId);
-                    }
+                } catch (error) {
+                    console.warn(`Error processing chunk at (${chunkX}, ${chunkZ}):`, error.message);
                 }
             }
         }
     } catch (error) {
-        console.error('Error analyzing chunk:', error);
+        console.error('Error analyzing region file:', error);
     }
+    
+    return blocks;
 }
 
 // Run the test if this file is run directly
