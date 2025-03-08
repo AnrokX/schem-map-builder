@@ -108,9 +108,72 @@ async function parseNBTWithFallback(buffer) {
     throw new Error(`All parsing attempts failed. Last error: ${lastError.message}`);
 }
 
+// Add this after the other global variables
+const blockStatistics = {
+    totalBlocks: 0,
+    blockTypes: {},
+    heightMap: {},
+    commonBlocks: [],
+
+    trackBlock: function(blockName, y) {
+        // Track block type count
+        if (!this.blockTypes[blockName]) {
+            this.blockTypes[blockName] = 0;
+        }
+        this.blockTypes[blockName]++;
+        this.totalBlocks++;
+
+        // Track height distribution
+        const heightKey = Math.floor(y / 16) * 16; // Group by 16-block sections
+        if (!this.heightMap[heightKey]) {
+            this.heightMap[heightKey] = 0;
+        }
+        this.heightMap[heightKey]++;
+    },
+
+    generateReport: function() {
+        // Sort block types by frequency
+        this.commonBlocks = Object.entries(this.blockTypes)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+
+        // Generate report
+        let report = '\n=== Block Statistics Report ===\n';
+        report += `Total Blocks: ${this.totalBlocks}\n`;
+        report += `Unique Block Types: ${Object.keys(this.blockTypes).length}\n`;
+        
+        report += '\nTop 10 Most Common Blocks:\n';
+        this.commonBlocks.forEach(([block, count], index) => {
+            const percentage = ((count / this.totalBlocks) * 100).toFixed(2);
+            report += `${index + 1}. ${block}: ${count} (${percentage}%)\n`;
+        });
+
+        report += '\nHeight Distribution:\n';
+        const sortedHeights = Object.entries(this.heightMap)
+            .sort(([a], [b]) => Number(a) - Number(b));
+        
+        sortedHeights.forEach(([height, count]) => {
+            const percentage = ((count / this.totalBlocks) * 100).toFixed(2);
+            report += `Y ${height}-${Number(height) + 15}: ${count} blocks (${percentage}%)\n`;
+        });
+
+        return report;
+    },
+
+    reset: function() {
+        this.totalBlocks = 0;
+        this.blockTypes = {};
+        this.heightMap = {};
+        this.commonBlocks = [];
+    }
+};
+
 // Main test function
 async function testMinecraftWorldParsing(worldFilePath) {
     try {
+        // Reset statistics at start
+        blockStatistics.reset();
+
         console.log('Reading world file:', worldFilePath);
         const buffer = await readFileAsBuffer(worldFilePath);
         
@@ -182,6 +245,20 @@ async function testMinecraftWorldParsing(worldFilePath) {
         
         await analyzeRegionFiles(zip, basePath);
         
+        // After processing all regions, print statistics
+        console.log(blockStatistics.generateReport());
+        
+        // If there are unmapped blocks, show those too
+        if (Object.keys(unmappedBlockTracker.blocks).length > 0) {
+            console.log('\n=== Unmapped Blocks ===');
+            for (const [blockName, data] of Object.entries(unmappedBlockTracker.blocks)) {
+                console.log(`${blockName}:`);
+                console.log(`  Count: ${data.count}`);
+                console.log(`  First occurrence: ${data.positions[0]}`);
+                console.log(`  Fallback ID used: ${data.fallbackId}`);
+            }
+        }
+
     } catch (error) {
         console.error('Error parsing world:', error);
     }
@@ -280,49 +357,33 @@ async function analyzeRegionFiles(zip, basePath) {
 async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
     
-    // Read the first chunk location
-    const offset = (buffer[0] << 16) | (buffer[1] << 8) | buffer[2];
-    const sectorCount = buffer[3];
-    
-    console.log(`First chunk: offset=${offset}, sectors=${sectorCount}`);
-    
-    if (offset === 0 || sectorCount === 0) {
-        console.log('First chunk is empty');
-        return;
-    }
-    
-    const chunkOffset = offset * 4096;
-    console.log(`Chunk data starts at byte ${chunkOffset}`);
-    
     try {
-        // Read chunk length and compression type
-        const chunkLength = (buffer[chunkOffset] << 24) | 
-                          (buffer[chunkOffset + 1] << 16) | 
-                          (buffer[chunkOffset + 2] << 8) | 
-                          buffer[chunkOffset + 3];
-        const compressionType = buffer[chunkOffset + 4];
-        
-        console.log(`Chunk length: ${chunkLength}, compression type: ${compressionType}`);
-        
-        // Extract chunk data
-        const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength);
-        console.log(`Compressed data length: ${compressedData.length}`);
-        
-        // Try to decompress and parse
-        let chunkData;
-        if (compressionType === 1 || compressionType === 2) {
-            console.log('Decompressing chunk data...');
-            const decompressed = pako.inflate(new Uint8Array(compressedData));
-            chunkData = Buffer.from(decompressed.buffer);
-            
-            console.log('Parsing chunk NBT data...');
-            const nbtData = await parseNBTWithFallback(chunkData);
-            
-            // Print chunk structure
-            console.log('\nChunk NBT Structure:');
-            console.log(JSON.stringify(nbtData, null, 2).substring(0, 1000) + '...');
-        } else {
-            console.log(`Unsupported compression type: ${compressionType}`);
+        // Inside your block processing loop
+        for (let y = 0; y < 256; y++) {  // Add loop for Y coordinate
+            for (let z = 0; z < 16; z++) {  // Add loop for Z coordinate
+                for (let x = 0; x < 16; x++) {  // Add loop for X coordinate
+                    const block = palette[paletteIndex];
+                    if (!block) continue;
+                    
+                    let blockName = block.Name?.value || block.name?.value;
+                    if (!blockName || blockName === 'minecraft:air') continue;
+                    
+                    if (!blockName.includes(':')) {
+                        blockName = `minecraft:${blockName}`;
+                    }
+                    
+                    const mappedId = getFallbackBlockId(blockName);
+                    blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
+                    
+                    // Add statistics tracking
+                    blockStatistics.trackBlock(blockName, worldY);
+                    
+                    // Track unmapped blocks
+                    if (!dynamicBlockMappings.has(blockName)) {
+                        unmappedBlockTracker.trackBlock(blockName, `${worldX},${worldY},${worldZ}`, mappedId);
+                    }
+                }
+            }
         }
     } catch (error) {
         console.error('Error analyzing chunk:', error);
