@@ -187,8 +187,9 @@ const blockStatistics = {
     blockTypes: {},
     heightMap: {},
     commonBlocks: [],
+    mappingTypes: {}, // Track how blocks were mapped (exact, prefix, fallback, etc.)
 
-    trackBlock: function(blockName, y) {
+    trackBlock: function(blockName, y, mappingType = 'unknown') {
         // Track block type count
         if (!this.blockTypes[blockName]) {
             this.blockTypes[blockName] = 0;
@@ -197,11 +198,16 @@ const blockStatistics = {
         this.totalBlocks++;
 
         // Track height distribution
-        const heightKey = Math.floor(y / 16) * 16; // Group by 16-block sections
+        const heightKey = Math.floor(y / 16) * 16;
         if (!this.heightMap[heightKey]) {
             this.heightMap[heightKey] = 0;
         }
         this.heightMap[heightKey]++;
+
+        // Track mapping type used
+        if (!this.mappingTypes[blockName]) {
+            this.mappingTypes[blockName] = mappingType;
+        }
     },
 
     generateReport: function() {
@@ -218,7 +224,8 @@ const blockStatistics = {
         report += '\nTop 10 Most Common Blocks:\n';
         this.commonBlocks.forEach(([block, count], index) => {
             const percentage = ((count / this.totalBlocks) * 100).toFixed(2);
-            report += `${index + 1}. ${block}: ${count} (${percentage}%)\n`;
+            const mappingType = this.mappingTypes[block] || 'unknown';
+            report += `${index + 1}. ${block}: ${count} (${percentage}%) [${mappingType}]\n`;
         });
 
         report += '\nHeight Distribution:\n';
@@ -238,6 +245,7 @@ const blockStatistics = {
         this.blockTypes = {};
         this.heightMap = {};
         this.commonBlocks = [];
+        this.mappingTypes = {};
     }
 };
 
@@ -454,13 +462,23 @@ async function analyzeRegionFiles(zip, basePath) {
     
     console.log(`Found ${regionFiles.length} region files`);
     
-    // Analyze first region file if available
-    if (regionFiles.length > 0) {
-        const firstRegion = regionFiles[0];
-        console.log(`\nAnalyzing first region file: ${firstRegion.path}`);
+    // Sort region files by name to ensure consistent processing order
+    regionFiles.sort((a, b) => a.path.localeCompare(b.path));
+    
+    // Process each region file until we find blocks
+    for (const region of regionFiles) {
+        console.log(`\nAnalyzing region file: ${region.path}`);
         
-        const regionBuffer = await firstRegion.file.async('nodebuffer');
-        await analyzeRegionFile(regionBuffer);
+        const regionBuffer = await region.file.async('nodebuffer');
+        const blocks = await analyzeRegionFile(regionBuffer);
+        
+        // If we found blocks in this region, we can stop
+        if (Object.keys(blocks).length > 0) {
+            console.log(`Found ${Object.keys(blocks).length} blocks in ${region.path}`);
+            break;
+        } else {
+            console.log(`No blocks found in ${region.path}, trying next region file...`);
+        }
     }
 }
 
@@ -557,7 +575,12 @@ async function analyzeRegionFile(buffer) {
                         // Get block states from the section
                         const blockStates = section.block_states?.value || {};
                         const palette = blockStates.palette?.value?.value || [];
-                        const data = blockStates.data?.value || [];
+                        
+                        // Get the block data array - handle both direct value and nested value cases
+                        let data = blockStates.data?.value;
+                        if (Array.isArray(blockStates.data?.value?.value)) {
+                            data = blockStates.data.value.value;
+                        }
                         
                         if (chunkX === 0 && chunkZ === 0 && section === sections[0]) {
                             console.log(`\nSection Y=${sectionY}`);
@@ -565,21 +588,71 @@ async function analyzeRegionFile(buffer) {
                             console.log('Palette entries:', palette.length);
                             if (palette.length > 0) {
                                 palette.forEach((entry, idx) => {
-                                    console.log(`Palette entry ${idx}:`, safeStringifyChunk(entry, 200));
+                                    if (entry.Name) {
+                                        console.log(`Palette entry ${idx}: ${entry.Name.value}`);
+                                    } else {
+                                        console.log(`Palette entry ${idx}:`, safeStringifyChunk(entry, 200));
+                                    }
                                 });
                             }
-                            console.log('Data array length:', data.length);
-                            if (data.length > 0) {
+                            console.log('Data array:', data ? `length=${data.length}` : 'undefined');
+                            if (data && data.length > 0) {
                                 console.log('First few data values:', data.slice(0, 5));
                             }
                         }
 
                         // Skip if no blocks defined
-                        if (!palette.length || !data.length) {
+                        if (!palette.length) {
                             if (chunkX === 0 && chunkZ === 0) {
-                                console.log('Skipping section - no palette or data');
+                                console.log('Skipping section - no palette');
                             }
                             continue;
+                        }
+
+                        // If no data array but we have a palette with one entry, it means the entire section is that block
+                        if (!data || !data.length) {
+                            if (palette.length === 1) {
+                                const block = palette[0];
+                                let blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
+                                if (blockName && blockName !== 'minecraft:air') {
+                                    // Fill entire section with this block
+                                    for (let y = 0; y < 16; y++) {
+                                        const worldY = sectionY * 16 + y;
+                                        for (let z = 0; z < 16; z++) {
+                                            for (let x = 0; x < 16; x++) {
+                                                const worldX = chunkX * 16 + x;
+                                                const worldZ = chunkZ * 16 + z;
+                                                
+                                                if (chunkX === 0 && chunkZ === 0) {
+                                                    console.log(`Found uniform block ${blockName} at ${worldX},${worldY},${worldZ}`);
+                                                }
+                                                
+                                                const mappedId = getFallbackBlockId(blockName, blockMapping);
+                                                blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
+                                                
+                                                let mappingType = 'fallback';
+                                                if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+                                                    mappingType = 'exact';
+                                                } else if (blockMapping.blocks && blockMapping.blocks[`minecraft:${blockName.replace('minecraft:', '')}`]) {
+                                                    mappingType = 'prefix';
+                                                } else if (blockMapping.blocks && blockMapping.blocks[blockName.split('[')[0]]) {
+                                                    mappingType = 'base';
+                                                }
+                                                
+                                                blockStatistics.trackBlock(blockName, worldY, mappingType);
+                                            }
+                                        }
+                                    }
+                                } else if (chunkX === 0 && chunkZ === 0) {
+                                    console.log('Skipping uniform air section');
+                                }
+                                continue;
+                            } else {
+                                if (chunkX === 0 && chunkZ === 0) {
+                                    console.log('Skipping section - no data array');
+                                }
+                                continue;
+                            }
                         }
 
                         // Process blocks in this section
@@ -609,7 +682,24 @@ async function analyzeRegionFile(buffer) {
                                     const mappedId = getFallbackBlockId(blockName, blockMapping);
                                     blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
                                     
-                                    blockStatistics.trackBlock(blockName, worldY);
+                                    // Determine mapping type
+                                    let mappingType = 'fallback';
+                                    if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+                                        mappingType = 'exact';
+                                    } else if (blockMapping.blocks && blockMapping.blocks[`minecraft:${blockName.replace('minecraft:', '')}`]) {
+                                        mappingType = 'prefix';
+                                    } else if (blockMapping.blocks && blockMapping.blocks[blockName.split('[')[0]]) {
+                                        mappingType = 'base';
+                                    } else {
+                                        for (const category of Object.keys(fallbackMapping)) {
+                                            if (category !== 'unknown' && blockName.toLowerCase().includes(category)) {
+                                                mappingType = `fallback:${category}`;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    blockStatistics.trackBlock(blockName, worldY, mappingType);
                                     
                                     if (!dynamicBlockMappings.has(blockName)) {
                                         unmappedBlockTracker.trackBlock(
