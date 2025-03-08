@@ -745,29 +745,13 @@ function extractBlocksFromChunk(chunk, blockMapping, regionSelection) {
 }
 
 // Add buffer handling for large chunks
-async function processMCAFile(fileData, blockMapping, regionCoords, regionSelection) {
-    const buffer = Buffer.from(fileData);
-    const chunks = [];
-    const maxChunkSize = 5 * 1024 * 1024; // 5MB max chunk size
+async function processMCAFile(buffer, blockMapping, regionCoords, regionSelection) {
+    const chunks = {};
     
-    // Show detailed debug info for the first region file processed
-    const isFirstRegion = regionCoords.x === 0 && regionCoords.z === 0;
-    
-    if (isFirstRegion) {
-        console.log(`Processing region at ${regionCoords.x},${regionCoords.z} with buffer length ${buffer.length}`);
-    }
-    
-    // Process chunks
+    // Process each chunk location
     for (let z = 0; z < 32; z++) {
         for (let x = 0; x < 32; x++) {
             const headerOffset = 4 * (x + z * 32);
-            
-            if (headerOffset + 4 > buffer.length) {
-                console.warn(`Header offset ${headerOffset} is beyond buffer length ${buffer.length}`);
-                continue;
-            }
-            
-            // Read chunk header
             const offset = (buffer[headerOffset] << 16) | (buffer[headerOffset + 1] << 8) | buffer[headerOffset + 2];
             const sectorCount = buffer[headerOffset + 3];
             
@@ -782,32 +766,102 @@ async function processMCAFile(fileData, blockMapping, regionCoords, regionSelect
                     continue;
                 }
                 
-                // Read chunk length safely
+                // Read chunk length and compression type
                 const chunkLength = (buffer[chunkOffset] << 24) | 
                                   (buffer[chunkOffset + 1] << 16) | 
                                   (buffer[chunkOffset + 2] << 8) | 
                                   buffer[chunkOffset + 3];
+                const compressionType = buffer[chunkOffset + 4];
                 
-                // Skip oversized chunks
-                if (chunkLength > maxChunkSize) {
-                    console.warn(`Skipping oversized chunk at ${x},${z} (${chunkLength} bytes)`);
+                // Validate chunk length
+                if (chunkLength <= 0 || chunkOffset + 5 + chunkLength > buffer.length) {
+                    console.warn(`Invalid chunk length ${chunkLength} for chunk ${x},${z}`);
                     continue;
                 }
                 
-                // Ensure chunk data fits in buffer
-                if (chunkOffset + 5 + chunkLength > buffer.length) {
-                    console.warn(`Chunk data would exceed buffer bounds, adjusting length`);
-                    const adjustedLength = buffer.length - (chunkOffset + 5);
-                    if (adjustedLength <= 0) continue;
+                // Extract compressed data
+                const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength);
+                
+                // Decompress chunk data based on compression type
+                let chunkData;
+                try {
+                    if (compressionType === 1 || compressionType === 2) { // Both Gzip and Zlib
+                        const decompressed = pako.inflate(new Uint8Array(compressedData));
+                        if (!decompressed || decompressed.length === 0) {
+                            console.warn(`No data after decompression for chunk ${x},${z}`);
+                            continue;
+                        }
+                        chunkData = Buffer.from(decompressed.buffer);
+                    } else {
+                        console.warn(`Unknown compression type ${compressionType} for chunk ${x},${z}`);
+                        continue;
+                    }
                     
-                    // Extract available data
-                    const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + adjustedLength);
-                    // Process chunk with adjusted size
-                    // ... rest of chunk processing ...
-                } else {
-                    // Process normal sized chunk
-                    const compressedData = buffer.slice(chunkOffset + 5, chunkOffset + 5 + chunkLength);
-                    // ... rest of existing chunk processing ...
+                    // Parse NBT data
+                    if (!chunkData || chunkData.length === 0) {
+                        console.warn(`No valid chunk data for chunk ${x},${z}`);
+                        continue;
+                    }
+                    
+                    const nbtData = await nbt.parse(chunkData);
+                    
+                    // Look for sections in the correct path
+                    const sections = nbtData?.value?.sections || // Modern format
+                                   nbtData?.value?.Level?.Sections; // Legacy format
+                    
+                    if (!sections) {
+                        console.log(`Debug: NBT structure for chunk ${x},${z}:`, JSON.stringify(nbtData, null, 2));
+                        continue;
+                    }
+
+                    // Process each section
+                    for (const section of sections) {
+                        const sectionY = section?.Y?.value || section?.value?.Y?.value;
+                        if (sectionY === undefined) continue;
+
+                        // Get block states data
+                        const blockStates = section?.block_states?.value || section?.value?.block_states?.value;
+                        if (!blockStates) continue;
+
+                        // Get palette
+                        const palette = blockStates?.palette?.value?.value || [];
+                        if (!palette.length) continue;
+
+                        // Get data array - if missing, assume the entire section is the first palette entry
+                        const data = blockStates?.data?.value || blockStates?.value?.data?.value || [];
+                        
+                        // If we have a single block in palette and no data, it means the entire section is that block
+                        const singleBlockSection = palette.length === 1 && data.length === 0;
+                        
+                        if (!singleBlockSection && !data.length) continue;
+
+                        // Process blocks in this section
+                        const blockName = palette[0]?.Name?.value || palette[0]?.value?.Name?.value;
+                        if (!blockName) continue;
+
+                        // Skip if it's just air and we're not explicitly looking for air
+                        if (blockName === "minecraft:air" && !includeAir) continue;
+
+                        // Debug info
+                        console.log(`Processing section Y=${sectionY}, block=${blockName}, single block section=${singleBlockSection}`);
+
+                        // Skip if outside region selection
+                        if (regionSelection && (
+                            x < regionSelection.minX || x > regionSelection.maxX ||
+                            z < regionSelection.minZ || z > regionSelection.maxZ)) {
+                            continue;
+                        }
+
+                        const worldX = (regionCoords.x * 32 + x) * 16;
+                        const worldY = sectionY * 16;
+                        const worldZ = (regionCoords.z * 32 + z) * 16;
+
+                        chunks[`${worldX},${worldY},${worldZ}`] = blockName;
+                    }
+                    
+                } catch (decompressError) {
+                    console.warn(`Error processing chunk ${x},${z}:`, decompressError);
+                    continue;
                 }
                 
             } catch (chunkError) {
