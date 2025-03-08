@@ -1027,59 +1027,79 @@ export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks,
     console.log("Finalizing schematic import with user decisions:", blockDecisions);
     
     const finalBlockMap = { ...temporaryBlockMap };
+    const totalBlocks = Object.keys(blockDecisions).length;
+    let processedBlocks = 0;
+
+    // Create progress bar at start
+    createProgressBar();
+    updateProgressBar(0);
     
-    // Apply user decisions for each unmapped block
-    Object.keys(blockDecisions).forEach(blockName => {
-      const decision = blockDecisions[blockName];
-      const blockInfo = unmappedBlocks[blockName];
+    // Process in chunks to keep UI responsive
+    const chunkSize = 1000;
+    const blockEntries = Object.entries(blockDecisions);
+    
+    for (let i = 0; i < blockEntries.length; i += chunkSize) {
+      const chunk = blockEntries.slice(i, i + chunkSize);
       
-      if (!blockInfo) {
-        console.warn(`Block info not found for ${blockName}`);
-        return;
-      }
-      
-      // Process based on decision type
-      switch (decision.action) {
-        case 'useCustomTexture':
-          // Change all instances of this block to the custom block ID
-          Object.keys(finalBlockMap).forEach(pos => {
-            if (blockInfo.positions.includes(pos) || 
-                finalBlockMap[pos] === blockInfo.fallbackId) {
-              finalBlockMap[pos] = decision.customBlockId;
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          chunk.forEach(([blockName, decision]) => {
+            const blockInfo = unmappedBlocks[blockName];
+            
+            if (!blockInfo) {
+              console.warn(`Block info not found for ${blockName}`);
+              return;
+            }
+            
+            // Process based on decision type
+            switch (decision.action) {
+              case 'useCustomTexture':
+                // Change all instances of this block to the custom block ID
+                Object.keys(finalBlockMap).forEach(pos => {
+                  if (blockInfo.positions.includes(pos) || 
+                      finalBlockMap[pos] === blockInfo.fallbackId) {
+                    finalBlockMap[pos] = decision.customBlockId;
+                  }
+                });
+                break;
+                
+              case 'useExisting':
+                // Change all instances of this block to the selected existing block ID
+                Object.keys(finalBlockMap).forEach(pos => {
+                  if (blockInfo.positions.includes(pos) || 
+                      finalBlockMap[pos] === blockInfo.fallbackId) {
+                    finalBlockMap[pos] = decision.selectedBlockId;
+                  }
+                });
+                break;
+                
+              case 'useFallback':
+                // Keep fallback ID (no change needed)
+                break;
+                
+              case 'skip':
+                // Remove this block from the map
+                Object.keys(finalBlockMap).forEach(pos => {
+                  if (blockInfo.positions.includes(pos) || 
+                      finalBlockMap[pos] === blockInfo.fallbackId) {
+                    delete finalBlockMap[pos];
+                  }
+                });
+                break;
+                
+              default:
+                console.warn(`Unknown decision action: ${decision.action} for block ${blockName}, using fallback`);
+                break;
             }
           });
-          break;
           
-        case 'useExisting':
-          // Change all instances of this block to the selected existing block ID
-          Object.keys(finalBlockMap).forEach(pos => {
-            if (blockInfo.positions.includes(pos) || 
-                finalBlockMap[pos] === blockInfo.fallbackId) {
-              finalBlockMap[pos] = decision.selectedBlockId;
-            }
-          });
-          break;
-          
-        case 'useFallback':
-          // Keep fallback ID (no change needed)
-          break;
-          
-        case 'skip':
-          // Remove this block from the map
-          Object.keys(finalBlockMap).forEach(pos => {
-            if (blockInfo.positions.includes(pos) || 
-                finalBlockMap[pos] === blockInfo.fallbackId) {
-              delete finalBlockMap[pos];
-            }
-          });
-          break;
-          
-        default:
-          // Default to using fallback ID for unknown actions
-          console.warn(`Unknown decision action: ${decision.action} for block ${blockName}, using fallback`);
-          break;
-      }
-    });
+          processedBlocks += chunk.length;
+          const progress = Math.floor((processedBlocks / totalBlocks) * 100);
+          updateProgressBar(progress);
+          resolve();
+        });
+      });
+    }
     
     // Save the final block map to the database
     await DatabaseManager.saveData(STORES.TERRAIN, "current", finalBlockMap);
@@ -1090,6 +1110,7 @@ export async function finalizeSchematicImport(temporaryBlockMap, unmappedBlocks,
     }
     
     console.log("Schematic import finalized");
+    updateProgressBar(100);
     
     return { success: true, blockCount: Object.keys(finalBlockMap).length };
   } catch (error) {
