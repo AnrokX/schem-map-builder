@@ -540,7 +540,7 @@ const ToolBar = ({ terrainBuilderRef, mode, handleModeChange, axisLockEnabled, s
 							<input
 								id="schematicFileInput"
 								type="file"
-								accept=".schematic,.schem,.litematic"
+								accept=".schematic,.schem"
 								onChange={onSchematicFileSelected}
 								style={{ display: "none" }}
 							/>
