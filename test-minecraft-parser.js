@@ -385,10 +385,25 @@ async function analyzeRegionFiles(zip, basePath) {
     }
 }
 
+// Helper function to safely stringify chunk data
+function safeStringifyChunk(data, maxLength = 500) {
+    try {
+        if (!data) return 'No data';
+        const stringified = JSON.stringify(data, null, 2);
+        if (stringified.length > maxLength) {
+            return stringified.substring(0, maxLength) + '...';
+        }
+        return stringified;
+    } catch (err) {
+        return `Error stringifying chunk: ${err.message}`;
+    }
+}
+
 // Helper function to analyze a single region file
 async function analyzeRegionFile(buffer) {
     console.log(`Region file size: ${buffer.length} bytes`);
     const blocks = {};
+    let totalValidChunks = 0;
     
     try {
         for (let chunkZ = 0; chunkZ < 32; chunkZ++) {
@@ -396,52 +411,97 @@ async function analyzeRegionFile(buffer) {
                 const headerOffset = 4 * (chunkX + chunkZ * 32);
                 const offset = (buffer[headerOffset] << 16) | (buffer[headerOffset + 1] << 8) | buffer[headerOffset + 2];
                 
-                if (offset === 0) continue;
+                if (offset === 0) {
+                    if (chunkX === 0 && chunkZ === 0) console.log('Skipping empty chunk');
+                    continue;
+                }
                 
                 const chunkStart = offset * 4096;
+                if (chunkStart >= buffer.length) {
+                    if (chunkX < 3 && chunkZ < 3) console.log(`Invalid chunk offset at (${chunkX}, ${chunkZ}): ${chunkStart} >= ${buffer.length}`);
+                    continue;
+                }
+
                 const length = (buffer[chunkStart] << 24) | (buffer[chunkStart + 1] << 16) | 
                              (buffer[chunkStart + 2] << 8) | buffer[chunkStart + 3];
                 
+                if (length <= 0 || chunkStart + length > buffer.length) {
+                    if (chunkX < 3 && chunkZ < 3) console.log(`Invalid chunk length at (${chunkX}, ${chunkZ}): ${length}`);
+                    continue;
+                }
+
                 try {
                     const compressedData = buffer.slice(chunkStart + 5, chunkStart + 4 + length);
-                    const decompressed = pako.inflate(compressedData);
-                    const chunkData = await nbt.parse(Buffer.from(decompressed));
+                    const compressionType = buffer[chunkStart + 4];
                     
-                    // Find sections using recursive search
-                    const sections = findSectionsRecursively(chunkData.value) || [];
-                    console.log(`Found ${sections.length} sections in chunk (${chunkX}, ${chunkZ})`);
+                    if (chunkX === 0 && chunkZ === 0) {
+                        console.log(`First chunk compression type: ${compressionType}`);
+                        console.log(`First chunk compressed size: ${compressedData.length} bytes`);
+                    }
+
+                    let decompressed;
+                    try {
+                        decompressed = pako.inflate(compressedData);
+                        if (chunkX === 0 && chunkZ === 0) {
+                            console.log(`Successfully decompressed first chunk: ${decompressed.length} bytes`);
+                        }
+                    } catch (err) {
+                        if (chunkX < 3 && chunkZ < 3) {
+                            console.log(`Decompression error at (${chunkX}, ${chunkZ}):`, err.message);
+                            console.log('Trying alternative decompression...');
+                        }
+                        // Try alternative decompression (skipping potential gzip header)
+                        decompressed = pako.inflate(compressedData.slice(2));
+                    }
+
+                    const chunkData = await nbt.parse(Buffer.from(decompressed));
+                    totalValidChunks++;
+
+                    if (chunkX === 0 && chunkZ === 0) {
+                        console.log('\nFirst chunk NBT structure:');
+                        console.log(safeStringifyChunk(chunkData, 1000));
+                    }
+
+                    // Get the sections from the parsed NBT data
+                    const sections = chunkData.parsed?.value?.sections?.value?.value || [];
+                    
+                    if (sections.length > 0 && chunkX === 0 && chunkZ === 0) {
+                        console.log(`\nFound ${sections.length} sections in chunk`);
+                        console.log('First section structure:', safeStringifyChunk(sections[0], 500));
+                    }
 
                     for (const section of sections) {
-                        if (!section || typeof section !== 'object') continue;
+                        if (!section) continue;
                         
                         const sectionY = section.Y?.value || 0;
-                        console.log(`Processing section Y=${sectionY}`);
-
-                        // Handle 1.21 format where block states are nested
-                        const blockStatesContainer = section.block_states || section.BlockStates;
-                        if (!blockStatesContainer) {
-                            console.log(`No block states found in section Y=${sectionY}`);
-                            continue;
-                        }
-
-                        // Get palette from the new structure
-                        const palette = blockStatesContainer.palette?.value || 
-                                      blockStatesContainer.Palette?.value || [];
                         
-                        if (!palette.length) {
-                            console.log(`No palette found in section Y=${sectionY}`);
-                            continue;
-                        }
-
-                        // Get block states data
-                        const blockStates = blockStatesContainer.data?.value || [];
+                        // Get block states from the section
+                        const blockStates = section.block_states?.value || {};
+                        const palette = blockStates.palette?.value?.value || [];
+                        const data = blockStates.data?.value || [];
                         
-                        if (!blockStates.length) {
-                            console.log(`No block states data found in section Y=${sectionY}`);
-                            continue;
+                        if (chunkX === 0 && chunkZ === 0 && section === sections[0]) {
+                            console.log(`\nSection Y=${sectionY}`);
+                            console.log('Block states:', safeStringifyChunk(blockStates, 200));
+                            console.log('Palette entries:', palette.length);
+                            if (palette.length > 0) {
+                                palette.forEach((entry, idx) => {
+                                    console.log(`Palette entry ${idx}:`, safeStringifyChunk(entry, 200));
+                                });
+                            }
+                            console.log('Data array length:', data.length);
+                            if (data.length > 0) {
+                                console.log('First few data values:', data.slice(0, 5));
+                            }
                         }
 
-                        console.log(`Processing section Y=${sectionY} with palette size ${palette.length}`);
+                        // Skip if no blocks defined
+                        if (!palette.length || !data.length) {
+                            if (chunkX === 0 && chunkZ === 0) {
+                                console.log('Skipping section - no palette or data');
+                            }
+                            continue;
+                        }
 
                         // Process blocks in this section
                         for (let y = 0; y < 16; y++) {
@@ -449,18 +509,23 @@ async function analyzeRegionFile(buffer) {
                             for (let z = 0; z < 16; z++) {
                                 for (let x = 0; x < 16; x++) {
                                     const index = y * 256 + z * 16 + x;
-                                    const paletteIndex = blockStates[index] || 0;
+                                    const paletteIndex = data[index] || 0;
                                     
                                     if (paletteIndex >= palette.length) continue;
                                     
                                     const block = palette[paletteIndex];
                                     if (!block) continue;
                                     
-                                    let blockName = block.Name?.value || block.name?.value;
+                                    // Handle both string values and compound NBT values
+                                    let blockName = typeof block === 'string' ? block : (block.Name?.value || block.name?.value);
                                     if (!blockName || blockName === 'minecraft:air') continue;
                                     
                                     const worldX = chunkX * 16 + x;
                                     const worldZ = chunkZ * 16 + z;
+                                    
+                                    if (chunkX === 0 && chunkZ === 0 && blockName !== 'minecraft:air') {
+                                        console.log(`Found block ${blockName} at ${worldX},${worldY},${worldZ}`);
+                                    }
                                     
                                     const mappedId = getFallbackBlockId(blockName);
                                     blocks[`${worldX},${worldY},${worldZ}`] = mappedId;
@@ -479,10 +544,13 @@ async function analyzeRegionFile(buffer) {
                         }
                     }
                 } catch (error) {
-                    console.warn(`Error processing chunk at (${chunkX}, ${chunkZ}):`, error.message);
+                    if (chunkX < 3 && chunkZ < 3) {
+                        console.warn(`Error processing chunk at (${chunkX}, ${chunkZ}):`, error.message);
+                    }
                 }
             }
         }
+        console.log(`\nProcessed ${totalValidChunks} valid chunks`);
     } catch (error) {
         console.error('Error analyzing region file:', error);
     }
