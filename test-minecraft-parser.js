@@ -71,8 +71,8 @@ const unmappedBlockTracker = {
 // Modified loadBlockMappings function to use correct path
 async function loadBlockMappings() {
     try {
-        // Fix the path to be relative to current directory
-        const mappingPath = path.join(__dirname, 'mapping.json');
+        // Update path to look in the public directory
+        const mappingPath = path.join(__dirname, 'public', 'mapping.json');
         const rawData = fs.readFileSync(mappingPath, 'utf8');
         return JSON.parse(rawData);
     } catch (error) {
@@ -381,7 +381,7 @@ const BlockDataCollector = {
     // Export data for visualization or further processing
     exportData: function(outputPath) {
         try {
-            // Create a simplified version of the data for export
+            // Create a simplified version of the data for export for visualization (this part remains unchanged)
             const exportData = {
                 metadata: {
                     totalBlocks: this.totalBlockCount,
@@ -417,6 +417,187 @@ const BlockDataCollector = {
             
             fs.writeFileSync(outputPath, JSON.stringify(exportData, null, 2));
             console.log(`Exported visualization data to ${outputPath}`);
+
+            // Now generate Hytopia format output
+            // Define configuration for fallback blocks
+            const fallbackBlockTypes = {
+                "grass": "minecraft:grass_block",
+                "dirt": "minecraft:dirt",
+                "wood": "minecraft:oak_log",
+                "leaves": "minecraft:oak_leaves",
+                "flower": "minecraft:dandelion",
+                "stone": "minecraft:stone",
+                "brick": "minecraft:stone_bricks",
+                "glass": "minecraft:glass",
+                "water": "minecraft:water",
+                "concrete": "minecraft:stone",
+                "ore": "minecraft:stone",
+                "log": "minecraft:oak_log",
+                "planks": "minecraft:oak_planks",
+                "stairs": "minecraft:oak_planks",
+                "slab": "minecraft:oak_planks",
+                "fence": "minecraft:oak_planks",
+                "wall": "minecraft:stone",
+                "sand": "minecraft:sand",
+                "gravel": "minecraft:gravel"
+            };
+
+            // Get block mappings
+            let blockMapping = { blocks: {} };
+            try {
+                const mappingFilePath = path.join(__dirname, 'public', 'mapping.json');
+                if (fs.existsSync(mappingFilePath)) {
+                    blockMapping = JSON.parse(fs.readFileSync(mappingFilePath, 'utf8'));
+                } else {
+                    console.log('Mapping file not found, using default block mappings');
+                    blockMapping = defaultBlockMapping;
+                }
+            } catch (error) {
+                console.error('Error loading mapping file, using default mappings:', error);
+                blockMapping = defaultBlockMapping;
+            }
+
+            // Function to find the best fallback block for unmapped blocks
+            const findFallbackBlock = (blockName) => {
+                // Remove minecraft: prefix
+                const simpleName = blockName.replace('minecraft:', '');
+                
+                // Check if the block name contains any of the fallback categories
+                for (const [category, fallbackBlock] of Object.entries(fallbackBlockTypes)) {
+                    if (simpleName.includes(category)) {
+                        return fallbackBlock;
+                    }
+                }
+                
+                // If no match found, use the default block type
+                return "minecraft:stone";
+            };
+
+            // Create the output structure for Hytopia format
+            const hytopiaData = {
+                blockTypes: [],
+                blocks: {}
+            };
+            
+            // Process block types from the mapping
+            const processedBlockTypes = new Set();
+            const blockTypeMap = new Map();
+            
+            // Extract unique block types from the mapping
+            console.log('Processing block types from mapping...');
+            Object.entries(blockMapping.blocks || {}).forEach(([minecraftName, blockInfo]) => {
+                if (!processedBlockTypes.has(blockInfo.id)) {
+                    hytopiaData.blockTypes.push({
+                        id: blockInfo.id,
+                        name: blockInfo.hytopiaBlock,
+                        textureUri: blockInfo.textureUri || `blocks/${blockInfo.hytopiaBlock}.png`,
+                        isCustom: false
+                    });
+                    
+                    processedBlockTypes.add(blockInfo.id);
+                    blockTypeMap.set(minecraftName, blockInfo.id);
+                }
+            });
+            
+            console.log(`Processed ${hytopiaData.blockTypes.length} unique block types from mapping.`);
+            
+            // Create a map of unmapped blocks to their fallback blocks
+            const unmappedBlocksMap = new Map();
+            
+            // Collect all block types that need mappings
+            const unmappedBlocks = new Set();
+            
+            // Detect unmapped blocks from all sources
+            Object.keys(this.blocksByType).forEach(blockName => {
+                if (!blockTypeMap.has(blockName) && !(blockMapping.blocks && blockMapping.blocks[blockName])) {
+                    unmappedBlocks.add(blockName);
+                }
+            });
+            
+            console.log(`Found ${unmappedBlocks.size} unmapped block types.`);
+            
+            // Assign fallback blocks to unmapped blocks
+            unmappedBlocks.forEach(blockName => {
+                const fallbackBlock = findFallbackBlock(blockName);
+                unmappedBlocksMap.set(blockName, fallbackBlock);
+                console.log(`Assigned fallback block ${fallbackBlock} to unmapped block ${blockName}`);
+            });
+            
+            // Process blocks and their positions
+            let totalPositionsAdded = 0;
+            
+            // Process all blocks from blocksByType section
+            console.log('Processing all blocks...');
+            
+            for (const [minecraftName, blocks] of Object.entries(this.blocksByType)) {
+                // Skip air blocks
+                if (minecraftName === 'minecraft:air') continue;
+                
+                // Get the block ID from the mapping or use a fallback
+                let blockId;
+                let usedFallback = false;
+                
+                if (blockTypeMap.has(minecraftName)) {
+                    blockId = blockTypeMap.get(minecraftName);
+                } else if (blockMapping.blocks && blockMapping.blocks[minecraftName]) {
+                    blockId = blockMapping.blocks[minecraftName].id;
+                    
+                    // Add to block types if not already added
+                    if (!processedBlockTypes.has(blockId)) {
+                        hytopiaData.blockTypes.push({
+                            id: blockId,
+                            name: blockMapping.blocks[minecraftName].hytopiaBlock,
+                            textureUri: blockMapping.blocks[minecraftName].textureUri || `blocks/${blockMapping.blocks[minecraftName].hytopiaBlock}.png`,
+                            isCustom: false
+                        });
+                        
+                        processedBlockTypes.add(blockId);
+                        blockTypeMap.set(minecraftName, blockId);
+                    }
+                } else if (unmappedBlocksMap.has(minecraftName)) {
+                    // Use the fallback block
+                    const fallbackBlock = unmappedBlocksMap.get(minecraftName);
+                    
+                    // Get the ID for the fallback block
+                    if (blockTypeMap.has(fallbackBlock)) {
+                        blockId = blockTypeMap.get(fallbackBlock);
+                    } else if (blockMapping.blocks && blockMapping.blocks[fallbackBlock]) {
+                        blockId = blockMapping.blocks[fallbackBlock].id;
+                    } else {
+                        // Use stone as the ultimate fallback
+                        blockId = (blockMapping.blocks && blockMapping.blocks["minecraft:stone"] && blockMapping.blocks["minecraft:stone"].id) || 37;
+                    }
+                    
+                    usedFallback = true;
+                } else {
+                    // Use stone as the default fallback
+                    blockId = (blockMapping.blocks && blockMapping.blocks["minecraft:stone"] && blockMapping.blocks["minecraft:stone"].id) || 37;
+                    usedFallback = true;
+                }
+                
+                // Add positions to the output
+                if (blocks && blocks.length > 0) {
+                    let positionsAdded = 0;
+                    
+                    for (const pos of blocks) {
+                        // Format: "x,y,z": blockId
+                        const key = `${pos.x},${pos.y},${pos.z}`;
+                        hytopiaData.blocks[key] = blockId;
+                        positionsAdded++;
+                    }
+                    
+                    console.log(`Added ${positionsAdded} positions for block ${minecraftName} ${usedFallback ? "(using fallback)" : ""}`);
+                    totalPositionsAdded += positionsAdded;
+                }
+            }
+            
+            console.log(`\nTotal positions added: ${totalPositionsAdded}`);
+            console.log(`Total block types in output: ${hytopiaData.blockTypes.length}`);
+            
+            // Write the Hytopia format output to a file
+            const hytopiaOutputPath = outputPath.replace('visualization_data.json', 'converted_world.json');
+            fs.writeFileSync(hytopiaOutputPath, JSON.stringify(hytopiaData, null, 2));
+            console.log(`Conversion complete. Output written to ${hytopiaOutputPath}`);
             return true;
         } catch (error) {
             console.error('Error exporting visualization data:', error);

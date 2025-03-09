@@ -1,4 +1,4 @@
-import { DatabaseManager, STORES } from "./DatabaseManager";
+import { DatabaseManager, STORES } from "../src/js/DatabaseManager";
 import * as nbt from 'prismarine-nbt';
 import pako from 'pako';
 import { Buffer } from 'buffer';
