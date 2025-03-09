@@ -400,6 +400,13 @@ const BlockDataCollector = {
                         count: blocks.length,
                         positions: blocks.slice(0, 1000) // Limit to 1000 positions per block type
                     })),
+                // Export all blocks by type (for complete conversion)
+                blocksByType: Object.fromEntries(
+                    Object.entries(this.blocksByType).map(([name, blocks]) => [
+                        name, 
+                        blocks.map(pos => ({ x: pos.x, y: pos.y, z: pos.z, ...pos }))
+                    ])
+                ),
                 // Export heightmap data (compressed format)
                 heightMap: Object.entries(this.chunkData)
                     .reduce((map, [chunkKey, chunk]) => {
