@@ -14,7 +14,7 @@ import {
 	importAssetPack
 } from '../ImportExport';
 import { importSchematic, previewSchematic } from '../SchematicConverter';
-import { importMinecraftWorld, previewMinecraftWorld } from '../MinecraftWorldImporter';
+import { importMinecraftWorld, previewMinecraftWorld } from '../MinecraftParser';
 import { DISABLE_ASSET_PACK_IMPORT_EXPORT } from '../Constants';
 import BlockImportModal from './BlockImportModal';
 import RegionSelectionModal from './RegionSelectionModal';

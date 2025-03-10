@@ -1,9 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-const JSZip = require('jszip');
-const nbt = require('prismarine-nbt');
-const pako = require('pako');
-const { Buffer } = require('buffer');
+import { DatabaseManager, STORES } from "./DatabaseManager";
+import * as nbt from 'prismarine-nbt';
+import pako from 'pako';
+import { Buffer } from 'buffer';
+import JSZip from 'jszip';
+
+// const fs = require('fs');
+// const path = require('path');
+// const { Buffer } = require('buffer'); // Already imported above
 
 // Update fallback mapping to match SchematicConverter.js
 const fallbackMapping = {
@@ -65,20 +68,51 @@ const unmappedBlockTracker = {
     },
     reset: function() {
         this.blocks = {};
+    },
+    hasUnmappedBlocks: function() {
+        return Object.keys(this.blocks).length > 0;
     }
 };
 
-// Modified loadBlockMappings function to use correct path
-async function loadBlockMappings() {
+// Modified loadBlockMappings function to use fetch instead of fs
+async function loadBlockMapping(mappingUrl = '/mapping.json') {
     try {
-        // Update path to look in the public directory
-        const mappingPath = path.join(__dirname, 'public', 'mapping.json');
-        const rawData = fs.readFileSync(mappingPath, 'utf8');
-        return JSON.parse(rawData);
+        // Ensure the URL is properly formatted
+        let fullUrl = mappingUrl;
+        if (!fullUrl.startsWith('http') && !fullUrl.startsWith('/')) {
+            fullUrl = '/' + fullUrl;
+        }
+        
+        console.log(`Attempting to load block mapping from: ${fullUrl}`);
+        
+        // Try several approaches to load the mapping file
+        let response;
+        try {
+            // First attempt with the provided URL
+            response = await fetch(fullUrl);
+            if (!response.ok) {
+                // If that fails, try with the absolute path from the root
+                console.log(`Trying alternative path: /mapping.json`);
+                response = await fetch('/mapping.json');
+            }
+        } catch (err) {
+            // If fetch fails completely, try with a relative path
+            console.log(`Fetch failed, trying with relative path: ./mapping.json`);
+            response = await fetch('./mapping.json');
+        }
+        
+        if (!response || !response.ok) {
+            throw new Error(`Failed to load mapping file: ${response ? response.status + ' ' + response.statusText : 'No response'}`);
+        }
+        
+        const mappingData = await response.json();
+        console.log(`Successfully loaded mapping with ${Object.keys(mappingData.blocks || {}).length} block definitions`);
+        
+        return mappingData;
     } catch (error) {
         console.error('Error loading block mappings:', error);
-        // Return empty mapping instead of {} to match expected structure
-        return { blocks: {} };
+        // Return default mapping if loading fails
+        return defaultBlockMapping;
     }
 }
 
@@ -111,11 +145,6 @@ function getFallbackBlockId(blockName, blockMapping) {
     // Use stone as fallback (id: 19)
     console.log(`Using fallback stone block for ${blockName}`);
     return 19;
-}
-
-// Utility function to read a file as buffer
-async function readFileAsBuffer(filePath) {
-    return fs.promises.readFile(filePath);
 }
 
 // Function to parse NBT data with multiple attempts
@@ -381,7 +410,7 @@ const BlockDataCollector = {
     // Export data for visualization or further processing
     exportData: function(outputPath) {
         try {
-            // Create a simplified version of the data for export for visualization (this part remains unchanged)
+            // Create a simplified version of the data for export
             const exportData = {
                 metadata: {
                     totalBlocks: this.totalBlockCount,
@@ -399,209 +428,13 @@ const BlockDataCollector = {
                         name,
                         count: blocks.length,
                         positions: blocks.slice(0, 1000) // Limit to 1000 positions per block type
-                    })),
-                // Export all blocks by type (for complete conversion)
-                blocksByType: Object.fromEntries(
-                    Object.entries(this.blocksByType).map(([name, blocks]) => [
-                        name, 
-                        blocks.map(pos => ({ x: pos.x, y: pos.y, z: pos.z, ...pos }))
-                    ])
-                ),
-                // Export heightmap data (compressed format)
-                heightMap: Object.entries(this.chunkData)
-                    .reduce((map, [chunkKey, chunk]) => {
-                        map[chunkKey] = chunk.heightMap;
-                        return map;
-                    }, {})
+                    }))
             };
             
-            fs.writeFileSync(outputPath, JSON.stringify(exportData, null, 2));
-            console.log(`Exported visualization data to ${outputPath}`);
-
-            // Now generate Hytopia format output
-            // Define configuration for fallback blocks
-            const fallbackBlockTypes = {
-                "grass": "minecraft:grass_block",
-                "dirt": "minecraft:dirt",
-                "wood": "minecraft:oak_log",
-                "leaves": "minecraft:oak_leaves",
-                "flower": "minecraft:dandelion",
-                "stone": "minecraft:stone",
-                "brick": "minecraft:stone_bricks",
-                "glass": "minecraft:glass",
-                "water": "minecraft:water",
-                "concrete": "minecraft:stone",
-                "ore": "minecraft:stone",
-                "log": "minecraft:oak_log",
-                "planks": "minecraft:oak_planks",
-                "stairs": "minecraft:oak_planks",
-                "slab": "minecraft:oak_planks",
-                "fence": "minecraft:oak_planks",
-                "wall": "minecraft:stone",
-                "sand": "minecraft:sand",
-                "gravel": "minecraft:gravel"
-            };
-
-            // Get block mappings
-            let blockMapping = { blocks: {} };
-            try {
-                const mappingFilePath = path.join(__dirname, 'public', 'mapping.json');
-                if (fs.existsSync(mappingFilePath)) {
-                    blockMapping = JSON.parse(fs.readFileSync(mappingFilePath, 'utf8'));
-                } else {
-                    console.log('Mapping file not found, using default block mappings');
-                    blockMapping = defaultBlockMapping;
-                }
-            } catch (error) {
-                console.error('Error loading mapping file, using default mappings:', error);
-                blockMapping = defaultBlockMapping;
-            }
-
-            // Function to find the best fallback block for unmapped blocks
-            const findFallbackBlock = (blockName) => {
-                // Remove minecraft: prefix
-                const simpleName = blockName.replace('minecraft:', '');
-                
-                // Check if the block name contains any of the fallback categories
-                for (const [category, fallbackBlock] of Object.entries(fallbackBlockTypes)) {
-                    if (simpleName.includes(category)) {
-                        return fallbackBlock;
-                    }
-                }
-                
-                // If no match found, use the default block type
-                return "minecraft:stone";
-            };
-
-            // Create the output structure for Hytopia format
-            const hytopiaData = {
-                blockTypes: [],
-                blocks: {}
-            };
-            
-            // Process block types from the mapping
-            const processedBlockTypes = new Set();
-            const blockTypeMap = new Map();
-            
-            // Extract unique block types from the mapping
-            console.log('Processing block types from mapping...');
-            Object.entries(blockMapping.blocks || {}).forEach(([minecraftName, blockInfo]) => {
-                if (!processedBlockTypes.has(blockInfo.id)) {
-                    hytopiaData.blockTypes.push({
-                        id: blockInfo.id,
-                        name: blockInfo.hytopiaBlock,
-                        textureUri: blockInfo.textureUri || `blocks/${blockInfo.hytopiaBlock}.png`,
-                        isCustom: false
-                    });
-                    
-                    processedBlockTypes.add(blockInfo.id);
-                    blockTypeMap.set(minecraftName, blockInfo.id);
-                }
-            });
-            
-            console.log(`Processed ${hytopiaData.blockTypes.length} unique block types from mapping.`);
-            
-            // Create a map of unmapped blocks to their fallback blocks
-            const unmappedBlocksMap = new Map();
-            
-            // Collect all block types that need mappings
-            const unmappedBlocks = new Set();
-            
-            // Detect unmapped blocks from all sources
-            Object.keys(this.blocksByType).forEach(blockName => {
-                if (!blockTypeMap.has(blockName) && !(blockMapping.blocks && blockMapping.blocks[blockName])) {
-                    unmappedBlocks.add(blockName);
-                }
-            });
-            
-            console.log(`Found ${unmappedBlocks.size} unmapped block types.`);
-            
-            // Assign fallback blocks to unmapped blocks
-            unmappedBlocks.forEach(blockName => {
-                const fallbackBlock = findFallbackBlock(blockName);
-                unmappedBlocksMap.set(blockName, fallbackBlock);
-                console.log(`Assigned fallback block ${fallbackBlock} to unmapped block ${blockName}`);
-            });
-            
-            // Process blocks and their positions
-            let totalPositionsAdded = 0;
-            
-            // Process all blocks from blocksByType section
-            console.log('Processing all blocks...');
-            
-            for (const [minecraftName, blocks] of Object.entries(this.blocksByType)) {
-                // Skip air blocks
-                if (minecraftName === 'minecraft:air') continue;
-                
-                // Get the block ID from the mapping or use a fallback
-                let blockId;
-                let usedFallback = false;
-                
-                if (blockTypeMap.has(minecraftName)) {
-                    blockId = blockTypeMap.get(minecraftName);
-                } else if (blockMapping.blocks && blockMapping.blocks[minecraftName]) {
-                    blockId = blockMapping.blocks[minecraftName].id;
-                    
-                    // Add to block types if not already added
-                    if (!processedBlockTypes.has(blockId)) {
-                        hytopiaData.blockTypes.push({
-                            id: blockId,
-                            name: blockMapping.blocks[minecraftName].hytopiaBlock,
-                            textureUri: blockMapping.blocks[minecraftName].textureUri || `blocks/${blockMapping.blocks[minecraftName].hytopiaBlock}.png`,
-                            isCustom: false
-                        });
-                        
-                        processedBlockTypes.add(blockId);
-                        blockTypeMap.set(minecraftName, blockId);
-                    }
-                } else if (unmappedBlocksMap.has(minecraftName)) {
-                    // Use the fallback block
-                    const fallbackBlock = unmappedBlocksMap.get(minecraftName);
-                    
-                    // Get the ID for the fallback block
-                    if (blockTypeMap.has(fallbackBlock)) {
-                        blockId = blockTypeMap.get(fallbackBlock);
-                    } else if (blockMapping.blocks && blockMapping.blocks[fallbackBlock]) {
-                        blockId = blockMapping.blocks[fallbackBlock].id;
-                    } else {
-                        // Use stone as the ultimate fallback
-                        blockId = (blockMapping.blocks && blockMapping.blocks["minecraft:stone"] && blockMapping.blocks["minecraft:stone"].id) || 37;
-                    }
-                    
-                    usedFallback = true;
-                } else {
-                    // Use stone as the default fallback
-                    blockId = (blockMapping.blocks && blockMapping.blocks["minecraft:stone"] && blockMapping.blocks["minecraft:stone"].id) || 37;
-                    usedFallback = true;
-                }
-                
-                // Add positions to the output
-                if (blocks && blocks.length > 0) {
-                    let positionsAdded = 0;
-                    
-                    for (const pos of blocks) {
-                        // Format: "x,y,z": blockId
-                        const key = `${pos.x},${pos.y},${pos.z}`;
-                        hytopiaData.blocks[key] = blockId;
-                        positionsAdded++;
-                    }
-                    
-                    console.log(`Added ${positionsAdded} positions for block ${minecraftName} ${usedFallback ? "(using fallback)" : ""}`);
-                    totalPositionsAdded += positionsAdded;
-                }
-            }
-            
-            console.log(`\nTotal positions added: ${totalPositionsAdded}`);
-            console.log(`Total block types in output: ${hytopiaData.blockTypes.length}`);
-            
-            // Write the Hytopia format output to a file
-            const hytopiaOutputPath = outputPath.replace('visualization_data.json', 'converted_world.json');
-            fs.writeFileSync(hytopiaOutputPath, JSON.stringify(hytopiaData, null, 2));
-            console.log(`Conversion complete. Output written to ${hytopiaOutputPath}`);
-            return true;
+            return exportData;
         } catch (error) {
             console.error('Error exporting visualization data:', error);
-            return false;
+            return null;
         }
     },
     
@@ -628,7 +461,7 @@ async function testMinecraftWorldParsing(worldFilePath) {
         const buffer = await readFileAsBuffer(worldFilePath);
         
         // Load block mapping first
-        const blockMapping = await loadBlockMappings();
+        const blockMapping = await loadBlockMapping();
         console.log(`Loaded ${Object.keys(blockMapping.blocks || {}).length} block mappings`);
 
         // Load the ZIP file
@@ -954,22 +787,242 @@ async function analyzeRegionFile(buffer) {
     return blocks;
 }
 
-// At the end of the file, add exports
-module.exports = {
-    testMinecraftWorldParsing,
-    BlockDataCollector
-};
+// Export the main function with a web-compatible signature
+export async function importMinecraftWorld(file, terrainBuilderRef, environmentBuilderRef, mappingUrl = '/mapping.json', regionSelection = null) {
+    try {
+        // Reset statistics and mappings at start
+        blockStatistics.reset();
+        unmappedBlockTracker.reset();
+        dynamicBlockMappings.clear();
+        BlockDataCollector.reset();
 
-// Run the test if this file is run directly
-if (require.main === module) {
-    const worldPath = process.argv[2];
-    if (!worldPath) {
-        console.error('Please provide the path to the Minecraft world file');
-        console.log('Usage: node test-minecraft-parser.js <path-to-world-file>');
-        process.exit(1);
+        console.log('Reading world file:', file.name);
+        const buffer = await file.arrayBuffer();
+        
+        // Load block mapping first
+        const blockMapping = await loadBlockMapping(mappingUrl);
+        console.log(`Loaded ${Object.keys(blockMapping.blocks || {}).length} block mappings`);
+
+        // Load the ZIP file
+        console.log('Loading ZIP file...');
+        const zip = await JSZip.loadAsync(buffer);
+        
+        // List all files in the ZIP
+        console.log('\nFiles in ZIP:');
+        zip.forEach((relativePath, file) => {
+            console.log(relativePath);
+        });
+        
+        // Try to find level.dat
+        const potentialPaths = [
+            'level.dat',
+            '/level.dat',
+            './level.dat',
+            'world/level.dat',
+            'New World/level.dat',
+            'saves/level.dat'
+        ];
+        
+        let levelDatFile = null;
+        let levelDatPath = '';
+        
+        // Look for level.dat
+        for (const path of potentialPaths) {
+            if (zip.file(path)) {
+                levelDatFile = zip.file(path);
+                levelDatPath = path;
+                console.log(`\nFound level.dat at: ${path}`);
+                break;
+            }
+        }
+        
+        if (!levelDatFile) {
+            // Try finding any file ending with level.dat
+            const levelDatMatch = Object.keys(zip.files).find(path => path.endsWith('level.dat'));
+            if (levelDatMatch) {
+                levelDatFile = zip.file(levelDatMatch);
+                levelDatPath = levelDatMatch;
+                console.log(`\nFound level.dat using general search at: ${levelDatMatch}`);
+            }
+        }
+        
+        if (!levelDatFile) {
+            throw new Error('level.dat not found in world file');
+        }
+        
+        // Extract and parse level.dat
+        console.log('\nExtracting level.dat...');
+        const levelDatBuffer = await levelDatFile.async('nodebuffer');
+        
+        console.log('\nParsing level.dat...');
+        const worldData = await parseNBTWithFallback(levelDatBuffer);
+        
+        // Print parsed data structure
+        console.log('\nParsed NBT Structure:');
+        console.log(JSON.stringify(worldData, null, 2).substring(0, 1000) + '...');
+        
+        // Extract basic world info
+        const worldInfo = extractWorldInfo(worldData);
+        console.log('\nExtracted World Info:', worldInfo);
+        
+        // Find and analyze region files
+        const basePath = levelDatPath.includes('/') ? 
+            levelDatPath.substring(0, levelDatPath.lastIndexOf('/') + 1) : '';
+        
+        await analyzeRegionFiles(zip, basePath);
+        
+        // After processing all regions, print statistics
+        console.log(blockStatistics.generateReport());
+        
+        // Print visualization data report
+        console.log(BlockDataCollector.generateVisualizationReport());
+        
+        // Export visualization data
+        const outputDir = './output';
+        if (!fs.existsSync(outputDir)){
+            fs.mkdirSync(outputDir);
+        }
+        const outputPath = path.join(outputDir, 'visualization_data.json');
+        BlockDataCollector.exportData(outputPath);
+        
+        // If there are unmapped blocks, show those too
+        if (Object.keys(unmappedBlockTracker.blocks).length > 0) {
+            console.log('\n=== Unmapped Blocks ===');
+            for (const [blockName, data] of Object.entries(unmappedBlockTracker.blocks)) {
+                console.log(`${blockName}:`);
+                console.log(`  Count: ${data.count}`);
+                console.log(`  First occurrence: ${data.positions[0]}`);
+                console.log(`  Fallback ID used: ${data.fallbackId}`);
+            }
+        }
+
+        // Get the block data from BlockDataCollector
+        const blockData = BlockDataCollector.blocksByType;
+        const hytopiaMap = {
+            blocks: {}
+        };
+
+        // Convert collected blocks to Hytopia format
+        for (const [blockName, positions] of Object.entries(blockData)) {
+            // Skip air blocks
+            if (blockName === 'minecraft:air') continue;
+
+            // Get Hytopia block ID
+            let hytopiaBlockId;
+            if (blockMapping.blocks && blockMapping.blocks[blockName]) {
+                hytopiaBlockId = blockMapping.blocks[blockName].id;
+            } else {
+                const shortName = blockName.replace('minecraft:', '');
+                const baseName = blockName.split('[')[0];
+                
+                if (blockMapping.blocks && blockMapping.blocks[`minecraft:${shortName}`]) {
+                    hytopiaBlockId = blockMapping.blocks[`minecraft:${shortName}`].id;
+                } else if (blockMapping.blocks && blockMapping.blocks[baseName]) {
+                    hytopiaBlockId = blockMapping.blocks[baseName].id;
+                } else {
+                    hytopiaBlockId = getFallbackBlockId(blockName);
+                }
+            }
+
+            // Add blocks to Hytopia map
+            for (const pos of positions) {
+                const key = `${pos.x},${pos.y},${pos.z}`;
+                hytopiaMap.blocks[key] = hytopiaBlockId;
+            }
+        }
+
+        // Save terrain data to IndexedDB
+        await DatabaseManager.saveData(STORES.TERRAIN, "current", hytopiaMap.blocks);
+        
+        // Refresh terrain builder
+        if (terrainBuilderRef && terrainBuilderRef.current) {
+            await terrainBuilderRef.current.refreshTerrainFromDB();
+        }
+        
+        console.log("Minecraft world import complete");
+        
+        return {
+            success: true,
+            blockCount: Object.keys(hytopiaMap.blocks).length,
+            regionSelection: regionSelection
+        };
+
+    } catch (error) {
+        console.error('Error importing Minecraft world:', error);
+        throw error;
     }
-    
-    testMinecraftWorldParsing(worldPath)
-        .then(() => console.log('\nTest complete'))
-        .catch(err => console.error('Test failed:', err));
-} 
+}
+
+// Add a preview function for the world selection modal
+export async function previewMinecraftWorld(file) {
+    try {
+        console.log(`Previewing Minecraft world file: ${file.name}`);
+        
+        // Read the file as ArrayBuffer
+        const buffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buffer);
+        
+        // Try to find level.dat
+        const potentialPaths = [
+            'level.dat',
+            '/level.dat',
+            './level.dat',
+            'world/level.dat',
+            'New World/level.dat',
+            'saves/level.dat'
+        ];
+        
+        let levelDatFile = null;
+        let levelDatPath = '';
+        
+        // Look for level.dat
+        for (const path of potentialPaths) {
+            if (zip.file(path)) {
+                levelDatFile = zip.file(path);
+                levelDatPath = path;
+                console.log(`Found level.dat at: ${path}`);
+                break;
+            }
+        }
+        
+        if (!levelDatFile) {
+            // Try finding any file ending with level.dat
+            const levelDatMatch = Object.keys(zip.files).find(path => path.endsWith('level.dat'));
+            if (levelDatMatch) {
+                levelDatFile = zip.file(levelDatMatch);
+                levelDatPath = levelDatMatch;
+                console.log(`Found level.dat using general search at: ${levelDatMatch}`);
+            }
+        }
+        
+        if (!levelDatFile) {
+            throw new Error('level.dat not found in world file');
+        }
+        
+        // Extract and parse level.dat
+        const levelDatBuffer = await levelDatFile.async('nodebuffer');
+        const worldData = await parseNBTWithFallback(levelDatBuffer);
+        
+        // Extract world info
+        const worldInfo = extractWorldInfo(worldData);
+        
+        return {
+            success: true,
+            worldInfo: {
+                ...worldInfo,
+                filePath: levelDatPath
+            }
+        };
+    } catch (error) {
+        console.error('Error previewing Minecraft world:', error);
+        throw error;
+    }
+}
+
+// Export other necessary functions and utilities
+export {
+    BlockDataCollector,
+    loadBlockMapping,
+    createProgressBar,
+    updateProgressBar
+}; 
